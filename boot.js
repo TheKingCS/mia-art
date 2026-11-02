@@ -191,6 +191,15 @@ function followBack() {
   });
 }
 
+// ------------------------------------------------------------ input
+
+// Her interface also serves touchscreens, where a tap picks the row under it.
+// The glasses have no pointer: their moves and selects arrive as keys, and a
+// pointer event as well would select a second time, on the wrong row.
+for (const kind of ["pointerdown", "pointerup", "pointercancel"]) {
+  addEventListener(kind, (event) => { if ($("pairing").hidden) event.stopImmediatePropagation(); }, true);
+}
+
 // ------------------------------------------------------------ start
 
 let started = false;
