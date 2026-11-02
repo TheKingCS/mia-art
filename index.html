@@ -32,7 +32,7 @@
   nav { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   button { font: inherit; color: #dff6ff; background: transparent; border: 2px solid rgba(53,212,255,.45); border-radius: 12px; padding: 8px 14px; }
   button:focus { outline: 3px solid var(--accent); }
-  nav[hidden] { display: none; }
+  nav[hidden], button[hidden] { display: none; }
   #big { text-align: center; font-size: 48px; letter-spacing: 6px; color: var(--soft); }
 </style>
 </head>
@@ -41,6 +41,11 @@
 <footer>
   <div id="big"></div>
   <div id="facts"></div>
+  <nav id="sure" hidden>
+    <button id="match">They Match</button>
+    <button id="differ">They Don't</button>
+  </nav>
+  <nav><button id="restart" hidden>Pair Again</button></nav>
   <nav id="tests" hidden>
     <button id="listen" autofocus>Listen</button>
     <button id="ask">Ask</button>
@@ -61,6 +66,16 @@
   try { saved = JSON.parse(localStorage.getItem(STORE)); } catch (e) { saved = null; }
   const remember = () => { try { localStorage.setItem(STORE, JSON.stringify(saved)); } catch (e) { say("couldn't save the key"); } };
 
+  // Stopped pairing waits for the person: no fresh tries they can't see.
+  function stopped(why) {
+    $("big").textContent = "";
+    $("sure").hidden = true;
+    say(why);
+    $("restart").hidden = false;
+    $("restart").focus();
+    $("restart").onclick = () => { $("restart").hidden = true; pair(); };
+  }
+
   async function pair() {
     const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
     $("big").textContent = code;
@@ -70,43 +85,67 @@
     const socket = new WebSocket(`${RELAY}/pair-${code}?role=page`);
     let promised = null;
     let found = null;
-    const abandon = () => socket.close();
+    let agreed = false;  // the person here has seen both match
+    let proof = null;  // the phone's, kept until then
+    let over = false;
+    const abandon = (why) => { over = true; socket.close(); stopped(why); };
+
+    const finish = async () => {
+      if (!agreed || !proof || saved) return;
+      if (!await confirmed(found.confirmPhone, found.transcript, proof)) return abandon("Pairing stopped: the proof was wrong.");
+      socket.send(JSON.stringify({ t: "ok", mac: await confirmation(found.confirmPage, found.transcript) }));
+      saved = { room: found.room, send: toBase64(found.send), receive: toBase64(found.receive), highest: 0 };
+      remember();
+      over = true;
+      setTimeout(() => socket.close(), 500);
+      $("big").textContent = "";
+      $("sure").hidden = true;
+      connect();
+    };
+
+    $("match").onclick = () => { agreed = true; say("Now confirm on your phone"); $("sure").hidden = true; finish(); };
+    $("differ").onclick = () => abandon("Pairing stopped.");
+
     socket.onmessage = async (event) => {
       let message;
-      try { message = JSON.parse(event.data); } catch (e) { return abandon(); }
+      try { message = JSON.parse(event.data); } catch (e) { return abandon("Pairing stopped: a bad message."); }
       if (message.t === "commit") {
-        if (promised) { if (message.c !== promised) abandon(); return; }
+        if (promised) { if (message.c !== promised) abandon("Pairing stopped: the promise changed."); return; }
         promised = message.c;
         socket.send(JSON.stringify({ t: "hello", pub: toBase64(pub), nonce: toBase64(nonce) }));
       } else if (message.t === "reveal" && promised && !found) {
         const phonePub = fromBase64(message.pub);
         const phoneNonce = fromBase64(message.nonce);
-        if (await commitment(phonePub, phoneNonce) !== promised) return abandon();
+        if (await commitment(phonePub, phoneNonce) !== promised) return abandon("Pairing stopped: the key wasn't the one promised.");
         found = await derive(keys.privateKey, phonePub, pub, phonePub, nonce, phoneNonce);
         $("big").textContent = found.check.slice(0, 4) + " " + found.check.slice(4);
         say("Does your phone show the same number?");
-      } else if (message.t === "ok" && found && !saved) {
-        if (!await confirmed(found.confirmPhone, found.transcript, message.mac)) return abandon();
-        socket.send(JSON.stringify({ t: "ok", mac: await confirmation(found.confirmPage, found.transcript) }));
-        saved = { room: found.room, send: toBase64(found.send), receive: toBase64(found.receive), highest: 0 };
-        remember();
-        setTimeout(() => socket.close(), 500);
-        $("big").textContent = "";
-        connect();
+        $("sure").hidden = false;
+        $("match").focus();
+      } else if (message.t === "ok" && found && !proof) {
+        proof = message.mac;
+        finish();
       }
     };
-    socket.onclose = () => { if (!saved) setTimeout(pair, 2000); };
+    socket.onclose = () => {
+      if (saved || over) return;
+      if (promised) stopped("Pairing stopped: the connection dropped.");
+      else setTimeout(pair, 2000);  // nobody has answered yet, so nothing was tried
+    };
   }
 
   function connect() {
     const box = sealer(fromBase64(saved.send), fromBase64(saved.receive), saved.highest || 0);
     const socket = new WebSocket(`${RELAY}/${saved.room}?role=page`);
     let last = "";
-    let id = 0;
+    const asked = new Map();  // each sealed answer must match a question, once
     let waiting = null;
     const send = (frame) => { last = frame; socket.send(frame); };
+    const newId = () => toBase64(crypto.getRandomValues(new Uint8Array(12)));
     const ask = async (path) => {
-      send(await box.seal({ id: ++id, path }));
+      const id = newId();
+      asked.set(id, path);
+      send(await box.seal({ id, path }));
       expectReply();
     };
     const expectReply = () => {
@@ -117,9 +156,10 @@
     socket.onmessage = async (event) => {
       try {
         const reply = await box.open(event.data);
-        clearTimeout(waiting);
         saved.highest = box.state.highest;
         remember();
+        if (!asked.delete(reply.id)) return say("refused an answer nobody asked for");
+        clearTimeout(waiting);
         say(reply.status === 200 ? reply.body.hello || "listening" : `refused by the phone (${reply.status})`);
       } catch (e) { say("refused a message from the relay"); }
     };
@@ -134,7 +174,7 @@
     $("blocked").onclick = () => ask("/api/state");
     $("replay").onclick = () => { if (last) { say("sent the last message again"); socket.send(last); expectReply(); } };
     $("bent").onclick = async () => {
-      const bytes = fromBase64(await box.seal({ id: ++id, path: "/test/hello" }));
+      const bytes = fromBase64(await box.seal({ id: newId(), path: "/test/hello" }));
       bytes[20] ^= 1;
       say("sent a changed message");
       socket.send(toBase64(bytes));
