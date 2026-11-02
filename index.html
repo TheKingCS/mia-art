@@ -29,7 +29,7 @@
   @keyframes turn { to { transform: rotate(360deg); } }
   footer { padding: 0 24px 24px; display: grid; gap: 8px; }
   #facts { text-align: center; color: var(--soft); font-size: 18px; min-height: 24px; }
-  nav { display: flex; gap: 10px; justify-content: center; }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   button { font: inherit; color: #dff6ff; background: transparent; border: 2px solid rgba(53,212,255,.45); border-radius: 12px; padding: 8px 14px; }
   button:focus { outline: 3px solid var(--accent); }
   nav[hidden] { display: none; }
@@ -46,6 +46,7 @@
     <button id="blocked">Blocked</button>
     <button id="replay">Replay</button>
     <button id="bent">Tamper</button>
+    <button id="again">Pair Again</button>
   </nav>
 </footer>
 <script type="module">
@@ -114,6 +115,7 @@
       } catch (e) { say("refused a message from the relay"); }
     };
     socket.onclose = () => { $("tests").hidden = true; say("reconnecting"); setTimeout(connect, 3000); };
+    $("again").onclick = () => { try { localStorage.removeItem(STORE); } catch (e) {} location.reload(); };
     $("ask").onclick = () => ask("/test/hello");
     $("blocked").onclick = () => ask("/api/state");
     $("replay").onclick = () => { if (last) { say("sent the last message again"); socket.send(last); expectReply(); } };
