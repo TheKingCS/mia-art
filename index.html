@@ -12,7 +12,7 @@
   html, body { height: 100%; }
   body { margin: 0; background: #000; color: #dff6ff; font: 22px/1.3 system-ui, sans-serif; display: grid; grid-template-rows: 1fr auto; overflow: hidden; }
   main { display: grid; place-items: center; min-height: 0; }
-  #wrap { position: relative; width: 300px; height: 300px; }
+  #wrap { position: relative; width: 300px; height: 300px; transform: scale(.72); }
   #orb { position: absolute; inset: 60px; border-radius: 50%;
     background: radial-gradient(circle at 38% 30%, #fff 0%, var(--soft) 16%, var(--accent) 46%, var(--deep) 80%, #010507 100%);
     box-shadow: 0 0 60px rgba(53,212,255,.7), 0 0 150px rgba(53,212,255,.3), inset 0 0 26px rgba(220,248,255,.65);
@@ -32,47 +32,100 @@
   nav { display: flex; gap: 10px; justify-content: center; }
   button { font: inherit; color: #dff6ff; background: transparent; border: 2px solid rgba(53,212,255,.45); border-radius: 12px; padding: 8px 14px; }
   button:focus { outline: 3px solid var(--accent); }
-  #add[hidden] { display: none; }
+  nav[hidden] { display: none; }
+  #big { text-align: center; font-size: 48px; letter-spacing: 6px; color: var(--soft); }
 </style>
 </head>
 <body>
 <main><div id="wrap"><div class="ring r1"></div><div class="ring r2"></div><div id="orb"></div></div></main>
 <footer>
+  <div id="big"></div>
   <div id="facts"></div>
-  <nav>
-    <button id="mood" autofocus>Her mood</button>
-    <button id="say">Speak</button>
-    <button id="add" hidden>Add MIA</button>
+  <nav id="tests" hidden>
+    <button id="ask" autofocus>Ask</button>
+    <button id="blocked">Blocked</button>
+    <button id="replay">Replay</button>
+    <button id="bent">Tamper</button>
   </nav>
 </footer>
-<script>
-  // A throwaway test (DEC-0062): no data, no accounts. It answers what the
-  // docs can't: the look, how long she stays up, and whether a key arrives.
-  "use strict";
-  const moods = ["", "listening", "thinking", "speaking"];
-  let mood = 0;
-  const started = Date.now();
-  let key = "none";
-  try {
-    const fromLink = new URLSearchParams(location.hash.slice(1)).get("key");
-    if (fromLink) localStorage.setItem("mia.testkey", fromLink);
-    key = localStorage.getItem("mia.testkey") ? "kept" : "none";
-  } catch (e) { key = "blocked"; }
-  const facts = document.getElementById("facts");
-  setInterval(() => {
-    const up = Math.floor((Date.now() - started) / 1000);
-    facts.textContent = `up ${Math.floor(up / 60)}m ${up % 60}s · key ${key} · crypto ${window.crypto && crypto.subtle ? "yes" : "no"}`;
-  }, 1000);
-  document.getElementById("mood").onclick = () => { mood = (mood + 1) % moods.length; document.body.className = moods[mood]; };
-  document.getElementById("say").onclick = () => {
-    if (window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance("Hello. It's me."));
-    else facts.textContent = "no speech here";
-  };
-  if (navigator.install) {
-    const add = document.getElementById("add");
-    add.hidden = false;
-    add.onclick = () => navigator.install(undefined, { name: "MIA" }).catch((e) => { facts.textContent = "add failed: " + e.name; });
+<script type="module">
+  // Pairing and the sealed relay, with made-up data only (DEC-0062).
+  import { RELAY, derive, fromBase64, newKeyPair, sealer, toBase64 } from "./sealed.js";
+
+  const $ = (id) => document.getElementById(id);
+  const say = (text) => { $("facts").textContent = text; };
+  const STORE = "mia.relay";
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORE)); } catch (e) { saved = null; }
+  const remember = () => { try { localStorage.setItem(STORE, JSON.stringify(saved)); } catch (e) { say("couldn't save the key"); } };
+
+  async function pair() {
+    const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
+    $("big").textContent = code;
+    say("Enter this in MIA on your phone: Settings, Glasses");
+    const { pair: keys, pub } = await newKeyPair();
+    const socket = new WebSocket(`${RELAY}/pair-${code}?role=page`);
+    const hello = JSON.stringify({ t: "hello", pub: toBase64(pub) });
+    const greet = setInterval(() => { if (socket.readyState === 1) socket.send(hello); }, 2000);
+    let found = null;
+    socket.onmessage = async (event) => {
+      const message = JSON.parse(event.data);
+      if (message.t === "hello" && !found) {
+        const phonePub = fromBase64(message.pub);
+        found = await derive(keys.privateKey, phonePub, pub, phonePub);
+        clearInterval(greet);
+        $("big").textContent = found.check;
+        say("Does your phone show the same number?");
+      } else if (message.t === "ok" && found) {
+        saved = { room: found.room, send: toBase64(found.send), receive: toBase64(found.receive), highest: 0 };
+        remember();
+        socket.close();
+        $("big").textContent = "";
+        connect();
+      }
+    };
+    socket.onclose = () => { clearInterval(greet); if (!saved) setTimeout(pair, 2000); };
   }
+
+  function connect() {
+    const box = sealer(fromBase64(saved.send), fromBase64(saved.receive), saved.highest || 0);
+    const socket = new WebSocket(`${RELAY}/${saved.room}?role=page`);
+    let last = "";
+    let id = 0;
+    let waiting = null;
+    const send = (frame) => { last = frame; socket.send(frame); };
+    const ask = async (path) => {
+      send(await box.seal({ id: ++id, path }));
+      expectReply();
+    };
+    const expectReply = () => {
+      clearTimeout(waiting);
+      waiting = setTimeout(() => say("no answer: the phone refused it"), 3000);
+    };
+    socket.onopen = () => { $("tests").hidden = false; say("connected"); };
+    socket.onmessage = async (event) => {
+      try {
+        const reply = await box.open(event.data);
+        clearTimeout(waiting);
+        saved.highest = box.state.highest;
+        remember();
+        say(reply.status === 200 ? reply.body.hello : `refused by the phone (${reply.status})`);
+      } catch (e) { say("refused a message from the relay"); }
+    };
+    socket.onclose = () => { $("tests").hidden = true; say("reconnecting"); setTimeout(connect, 3000); };
+    $("ask").onclick = () => ask("/test/hello");
+    $("blocked").onclick = () => ask("/api/state");
+    $("replay").onclick = () => { if (last) { say("sent the last message again"); socket.send(last); expectReply(); } };
+    $("bent").onclick = async () => {
+      const bytes = fromBase64(await box.seal({ id: ++id, path: "/test/hello" }));
+      bytes[20] ^= 1;
+      say("sent a changed message");
+      socket.send(toBase64(bytes));
+      expectReply();
+    };
+  }
+
+  if (saved) connect(); else pair();
 </script>
 </body>
 </html>
