@@ -74,6 +74,7 @@
         const phonePub = fromBase64(message.pub);
         found = await derive(keys.privateKey, phonePub, pub, phonePub);
         clearInterval(greet);
+        socket.send(hello);  // the phone may have missed the last one
         $("big").textContent = found.check;
         say("Does your phone show the same number?");
       } else if (message.t === "ok" && found) {
