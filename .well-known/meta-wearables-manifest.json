@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "name": "MIA",
+  "appearance": {
+    "theme_color": "#35D4FF",
+    "icon": {
+      "src": "icon.png",
+      "type": "monochrome"
+    }
+  }
+}

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="application-name" content="MIA">
+<meta name="description" content="MIA on Meta Ray-Ban Display glasses">
+<meta name="mrbd-web-app-capable" content="yes">
+<title>MIA</title>
+<style>
+  :root { --accent: #35d4ff; --soft: #a6ecff; --deep: #0b86ad; }
+  html, body { height: 100%; }
+  body { margin: 0; background: #000; color: #dff6ff; font: 22px/1.3 system-ui, sans-serif; display: grid; grid-template-rows: 1fr auto; overflow: hidden; }
+  main { display: grid; place-items: center; min-height: 0; }
+  #wrap { position: relative; width: 300px; height: 300px; }
+  #orb { position: absolute; inset: 60px; border-radius: 50%;
+    background: radial-gradient(circle at 38% 30%, #fff 0%, var(--soft) 16%, var(--accent) 46%, var(--deep) 80%, #010507 100%);
+    box-shadow: 0 0 60px rgba(53,212,255,.7), 0 0 150px rgba(53,212,255,.3), inset 0 0 26px rgba(220,248,255,.65);
+    animation: breathe 5s ease-in-out infinite; }
+  .ring { position: absolute; border-radius: 50%; border: 3px solid transparent; }
+  .r1 { inset: 30px; border-top-color: #dff6ff; border-right-color: rgba(220,248,255,.35); animation: turn 9s linear infinite; }
+  .r2 { inset: 12px; border-bottom-color: rgba(53,212,255,.9); border-left-color: rgba(53,212,255,.3); animation: turn 14s linear infinite reverse; }
+  body.listening #orb { animation: listen 1.1s ease-in-out infinite; }
+  body.thinking .r1, body.thinking .r2 { animation-duration: 1.4s; }
+  body.speaking #orb { animation: speak .6s ease-in-out infinite; }
+  @keyframes breathe { 50% { transform: scale(1.06); filter: brightness(1.15); } }
+  @keyframes listen { 50% { transform: scale(1.14); } }
+  @keyframes speak { 25% { transform: scale(1.1); } 60% { transform: scale(.97); } }
+  @keyframes turn { to { transform: rotate(360deg); } }
+  footer { padding: 0 24px 24px; display: grid; gap: 8px; }
+  #facts { text-align: center; color: var(--soft); font-size: 18px; min-height: 24px; }
+  nav { display: flex; gap: 10px; justify-content: center; }
+  button { font: inherit; color: #dff6ff; background: transparent; border: 2px solid rgba(53,212,255,.45); border-radius: 12px; padding: 8px 14px; }
+  button:focus { outline: 3px solid var(--accent); }
+  #add[hidden] { display: none; }
+</style>
+</head>
+<body>
+<main><div id="wrap"><div class="ring r1"></div><div class="ring r2"></div><div id="orb"></div></div></main>
+<footer>
+  <div id="facts"></div>
+  <nav>
+    <button id="mood" autofocus>Her mood</button>
+    <button id="say">Speak</button>
+    <button id="add" hidden>Add MIA</button>
+  </nav>
+</footer>
+<script>
+  // A throwaway test (DEC-0062): no data, no accounts. It answers what the
+  // docs can't: the look, how long she stays up, and whether a key arrives.
+  "use strict";
+  const moods = ["", "listening", "thinking", "speaking"];
+  let mood = 0;
+  const started = Date.now();
+  let key = "none";
+  try {
+    const fromLink = new URLSearchParams(location.hash.slice(1)).get("key");
+    if (fromLink) localStorage.setItem("mia.testkey", fromLink);
+    key = localStorage.getItem("mia.testkey") ? "kept" : "none";
+  } catch (e) { key = "blocked"; }
+  const facts = document.getElementById("facts");
+  setInterval(() => {
+    const up = Math.floor((Date.now() - started) / 1000);
+    facts.textContent = `up ${Math.floor(up / 60)}m ${up % 60}s · key ${key} · crypto ${window.crypto && crypto.subtle ? "yes" : "no"}`;
+  }, 1000);
+  document.getElementById("mood").onclick = () => { mood = (mood + 1) % moods.length; document.body.className = moods[mood]; };
+  document.getElementById("say").onclick = () => {
+    if (window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance("Hello. It's me."));
+    else facts.textContent = "no speech here";
+  };
+  if (navigator.install) {
+    const add = document.getElementById("add");
+    add.hidden = false;
+    add.onclick = () => navigator.install(undefined, { name: "MIA" }).catch((e) => { facts.textContent = "add failed: " + e.name; });
+  }
+</script>
+</body>
+</html>
