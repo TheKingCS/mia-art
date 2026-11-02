@@ -1,209 +1,73 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="application-name" content="MIA">
-<meta name="description" content="MIA on Meta Ray-Ban Display glasses">
-<meta name="mrbd-web-app-capable" content="yes">
-<title>MIA</title>
-<style>
-  :root { --accent: #35d4ff; --soft: #a6ecff; --deep: #0b86ad; }
-  html, body { height: 100%; }
-  body { margin: 0; background: #000; color: #dff6ff; font: 22px/1.3 system-ui, sans-serif; display: grid; grid-template-rows: 1fr auto; overflow: hidden; }
-  main { display: grid; place-items: center; min-height: 0; }
-  #wrap { position: relative; width: 300px; height: 300px; transform: scale(.72); }
-  #orb { position: absolute; inset: 60px; border-radius: 50%;
-    background: radial-gradient(circle at 38% 30%, #fff 0%, var(--soft) 16%, var(--accent) 46%, var(--deep) 80%, #010507 100%);
-    box-shadow: 0 0 60px rgba(53,212,255,.7), 0 0 150px rgba(53,212,255,.3), inset 0 0 26px rgba(220,248,255,.65);
-    animation: breathe 5s ease-in-out infinite; }
-  .ring { position: absolute; border-radius: 50%; border: 3px solid transparent; }
-  .r1 { inset: 30px; border-top-color: #dff6ff; border-right-color: rgba(220,248,255,.35); animation: turn 9s linear infinite; }
-  .r2 { inset: 12px; border-bottom-color: rgba(53,212,255,.9); border-left-color: rgba(53,212,255,.3); animation: turn 14s linear infinite reverse; }
-  body.listening #orb { animation: listen 1.1s ease-in-out infinite; }
-  body.thinking .r1, body.thinking .r2 { animation-duration: 1.4s; }
-  body.speaking #orb { animation: speak .6s ease-in-out infinite; }
-  @keyframes breathe { 50% { transform: scale(1.06); filter: brightness(1.15); } }
-  @keyframes listen { 50% { transform: scale(1.14); } }
-  @keyframes speak { 25% { transform: scale(1.1); } 60% { transform: scale(.97); } }
-  @keyframes turn { to { transform: rotate(360deg); } }
-  footer { padding: 0 24px 24px; display: grid; gap: 8px; }
-  #facts { text-align: center; color: var(--soft); font-size: 18px; min-height: 24px; }
-  nav { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-  button { font: inherit; color: #dff6ff; background: transparent; border: 2px solid rgba(53,212,255,.45); border-radius: 12px; padding: 8px 14px; }
-  button:focus { outline: 3px solid var(--accent); }
-  nav[hidden], button[hidden], #cards[hidden] { display: none; }
-  body.home main { align-content: start; justify-items: center; padding: 18px 24px 0; }
-  body.home #wrap { width: 120px; height: 120px; transform: none; }
-  body.home #orb { inset: 26px; }
-  body.home .r1 { inset: 12px; }
-  body.home .r2 { inset: 2px; }
-  #cards { list-style: none; margin: 8px 0 0; padding: 0; inline-size: 100%; display: grid; gap: 6px; }
-  #cards li { display: flex; justify-content: space-between; gap: 14px; font-size: 20px; border-bottom: 1px solid rgba(53,212,255,.2); padding-bottom: 4px; }
-  #cards b { font-weight: 600; color: #dff6ff; flex: none; }
-  #cards span { color: var(--soft); text-align: end; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #cards li.attention span { color: #fff; }
-  #big { text-align: center; font-size: 48px; letter-spacing: 6px; color: var(--soft); }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>MIA</title>
+  <link rel="stylesheet" href="glasses.css">
+  <meta name="application-name" content="MIA">
+  <meta name="description" content="MIA on Meta Ray-Ban Display glasses">
+  <meta name="mrbd-web-app-capable" content="yes">
+  <style>
+    .edge { display: none; }
+    #pairing { position: fixed; inset: 0; z-index: 9; background: #000; color: #dff6ff; display: grid; align-content: center; justify-items: center; gap: 18px; padding: 32px; text-align: center; font: 22px/1.3 system-ui, sans-serif; }
+    #pairing[hidden], #pairing [hidden] { display: none; }
+    #big { font-size: 56px; letter-spacing: 6px; color: #a6ecff; }
+    #sure { display: flex; gap: 12px; }
+    #pairing button { font: inherit; color: #dff6ff; background: transparent; border: 2px solid rgba(53,212,255,.45); border-radius: 12px; padding: 8px 14px; }
+    #pairing button:focus { outline: 3px solid #35d4ff; }
+  </style>
 </head>
 <body>
-<main><div id="wrap"><div class="ring r1"></div><div class="ring r2"></div><div id="orb"></div></div><ul id="cards" hidden></ul></main>
-<footer>
-  <div id="big"></div>
-  <div id="facts"></div>
-  <nav id="sure" hidden>
-    <button id="match">They Match</button>
-    <button id="differ">They Don't</button>
-  </nav>
-  <nav><button id="restart" hidden>Pair Again</button></nav>
-  <nav id="tests" hidden>
-    <button id="listen" autofocus>Listen</button>
-    <button id="refresh">Refresh</button>
-    <button id="again">Pair Again</button>
-  </nav>
-</footer>
-<script type="module">
-  // Pairing and the sealed relay, with made-up data only (DEC-0062).
-  import { RELAY, commitment, confirmation, confirmed, derive, fromBase64, isKey, isNonce, isPromise, newKeyPair, newNonce, sealer, toBase64 } from "./sealed.js";
-
-  const $ = (id) => document.getElementById(id);
-  const say = (text) => { $("facts").textContent = text; };
-  const STORE = "mia.relay";
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(STORE)); } catch (e) { saved = null; }
-  const remember = () => { try { localStorage.setItem(STORE, JSON.stringify(saved)); } catch (e) { say("couldn't save the key"); } };
-
-  // Stopped pairing waits for the person: no fresh tries they can't see.
-  function stopped(why) {
-    $("big").textContent = "";
-    $("sure").hidden = true;
-    say(why);
-    $("restart").hidden = false;
-    $("restart").focus();
-    $("restart").onclick = () => { $("restart").hidden = true; pair(); };
-  }
-
-  async function pair() {
-    const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
-    $("big").textContent = code;
-    say("Enter this in MIA on your phone: Settings, Glasses");
-    const { pair: keys, pub } = await newKeyPair();
-    const nonce = newNonce();
-    const socket = new WebSocket(`${RELAY}/pair-${code}?role=page`);
-    let promised = null;
-    let found = null;
-    let agreed = false;  // the person here has seen both match
-    let proof = null;  // the phone's, kept until then
-    let over = false;
-    const abandon = (why) => { over = true; socket.close(); stopped(why); };
-
-    const finish = async () => {
-      if (!agreed || !proof || saved || over) return;
-      if (!await confirmed(found.confirmPhone, found.transcript, proof)) return abandon("Pairing stopped: the proof was wrong.");
-      if (over) return;
-      socket.send(JSON.stringify({ t: "ok", mac: await confirmation(found.confirmPage, found.transcript) }));
-      saved = { room: found.room, send: toBase64(found.send), receive: toBase64(found.receive), highest: 0 };
-      remember();
-      over = true;
-      setTimeout(() => socket.close(), 500);
-      $("big").textContent = "";
-      $("sure").hidden = true;
-      connect();
-    };
-
-    $("match").onclick = () => { agreed = true; say("Now confirm on your phone"); $("sure").hidden = true; finish(); };
-    $("differ").onclick = () => abandon("Pairing stopped.");
-
-    socket.onmessage = async (event) => {
-      let message;
-      try { message = JSON.parse(event.data); } catch (e) { return abandon("Pairing stopped: a bad message."); }
-      if (over) return;
-      if (message.t === "commit") {
-        if (!isPromise(message.c)) return abandon("Pairing stopped: a bad message.");
-        if (promised) { if (message.c !== promised) abandon("Pairing stopped: the promise changed."); return; }
-        promised = message.c;
-        socket.send(JSON.stringify({ t: "hello", pub: toBase64(pub), nonce: toBase64(nonce) }));
-      } else if (message.t === "reveal" && promised && !found) {
-        let phonePub, phoneNonce;
-        try { phonePub = fromBase64(message.pub); phoneNonce = fromBase64(message.nonce); } catch (e) { return abandon("Pairing stopped: a bad message."); }
-        if (!isKey(phonePub) || !isNonce(phoneNonce)) return abandon("Pairing stopped: a bad message.");
-        if (await commitment(phonePub, phoneNonce) !== promised) return abandon("Pairing stopped: the key wasn't the one promised.");
-        found = await derive(keys.privateKey, phonePub, pub, phonePub, nonce, phoneNonce);
-        if (over) return;
-        $("big").textContent = found.check.slice(0, 4) + " " + found.check.slice(4);
-        say("Does your phone show the same number?");
-        $("sure").hidden = false;
-        $("differ").focus();  // a stray tap must never agree
-      } else if (message.t === "ok" && found && !proof) {
-        if (!isPromise(message.mac)) return abandon("Pairing stopped: a bad message.");
-        proof = message.mac;
-        finish();
-      }
-    };
-    socket.onclose = () => {
-      if (saved || over) return;
-      if (promised) stopped("Pairing stopped: the connection dropped.");
-      else setTimeout(pair, 2000);  // nobody has answered yet, so nothing was tried
-    };
-  }
-
-  function showHome(cards) {
-    document.body.classList.add("home");
-    $("cards").hidden = false;
-    say("");
-    $("cards").replaceChildren(...cards.map((card) => {
-      const row = document.createElement("li");
-      if (card.tone === "attention") row.className = "attention";
-      const name = document.createElement("b");
-      name.textContent = card.name;
-      const line = document.createElement("span");
-      line.textContent = card.status;
-      row.append(name, line);
-      return row;
-    }));
-  }
-
-  function connect() {
-    const box = sealer(fromBase64(saved.send), fromBase64(saved.receive), saved.highest || 0);
-    const socket = new WebSocket(`${RELAY}/${saved.room}?role=page`);
-    let last = "";
-    const asked = new Map();  // each sealed answer must match a question, once
-    let waiting = null;
-    const send = (frame) => { last = frame; socket.send(frame); };
-    const newId = () => toBase64(crypto.getRandomValues(new Uint8Array(12)));
-    const ask = async (path) => {
-      const id = newId();
-      asked.set(id, path);
-      send(await box.seal({ id, path }));
-      expectReply();
-    };
-    const expectReply = () => {
-      clearTimeout(waiting);
-      waiting = setTimeout(() => say("no answer: the phone refused it"), 3000);
-    };
-    socket.onopen = () => { $("tests").hidden = false; $("listen").focus(); say(""); ask("/glasses/home"); };
-    socket.onmessage = async (event) => {
-      try {
-        const reply = await box.open(event.data);
-        saved.highest = box.state.highest;
-        remember();
-        if (!asked.delete(reply.id)) return say("refused an answer nobody asked for");
-        clearTimeout(waiting);
-        if (reply.status !== 200) return say("I can't reach that right now");
-        if (reply.body.cards) showHome(reply.body.cards); else say("listening");
-      } catch (e) { say("refused a message from the relay"); }
-    };
-    socket.onclose = () => { $("tests").hidden = true; say("reconnecting"); setTimeout(connect, 3000); };
-    $("again").onclick = () => { try { localStorage.removeItem(STORE); } catch (e) {} location.reload(); };
-    $("listen").onclick = () => {
-      document.body.classList.add("listening");
-      setTimeout(() => document.body.classList.remove("listening"), 6000);
-      ask("/voice/listen");
-    };
-    $("refresh").onclick = () => ask("/glasses/home");
-  }
-
-  if (saved) connect(); else pair();
-</script>
+  <!--
+    MIA on Display glasses (DEC-0016; Muse's composition, H-0041; Zac's
+    layout, 2026-10-16). One fixed 600x600 composition, scaled to fit any
+    screen; only the conversation log scrolls. Pure black: on the glasses it's see-through.
+    Two moves do everything: move (next / previous) and select; every
+    list ends with a Back row. Home is her orb alone; select it to talk.
+  -->
+  <div id="stage">
+    <section id="home" aria-label="MIA">
+      <div id="orb-wrap" aria-hidden="true">
+        <div class="saturn back"><i class="s s1"></i><i class="s s2"></i><i class="s s3"></i></div>
+        <span class="ring r1"></span><span class="ring r2"></span>
+        <div id="orb"></div>
+        <div class="saturn front"><i class="s s1"></i><i class="s s2"></i><i class="s s3"></i></div>
+        <i class="p p1"></i><i class="p p2"></i><i class="p p3"></i>
+      </div>
+      <p id="caption" aria-live="polite"></p>
+    </section>
+    <section id="screen" hidden aria-live="polite"></section>
+    <!-- Meeting MIA (core/first_boot.py): she doesn't launch, she awakens. -->
+    <section id="boot" hidden aria-label="Meeting MIA">
+      <div class="b-sky" aria-hidden="true">
+        <div class="b-rays"></div>
+        <div class="b-swarm"></div>
+        <div class="b-core">
+          <i class="b-halo"></i><i class="b-ticks"></i><i class="b-ring b1"></i><i class="b-ring b2"></i><i class="b-orb"></i>
+        </div>
+        <p class="b-name">MIA</p>
+        <div class="b-wave"></div>
+      </div>
+      <p id="boot-line" aria-live="polite"></p>
+      <p id="boot-keys"></p>
+    </section>
+    <p id="demo-tag" hidden>Demo · placeholder data</p>
+    <!-- for a touchscreen: tap an edge to move (the glasses use the Band's scroll) -->
+    <button id="prev" class="edge" type="button" aria-label="Previous">‹</button>
+    <button id="next" class="edge" type="button" aria-label="Next">›</button>
+  </div>
+  <section id="pairing" hidden aria-live="polite">
+    <div id="big"></div>
+    <div id="facts"></div>
+    <div id="sure" hidden>
+      <button id="match" type="button">They Match</button>
+      <button id="differ" type="button">They Don't</button>
+    </div>
+    <button id="wait" type="button" hidden>Keep Waiting</button>
+    <button id="restart" type="button" hidden>Pair Again</button>
+  </section>
+  <script type="module" src="boot.js"></script>
 </body>
 </html>
