@@ -23,6 +23,11 @@ export async function newKeyPair() {
   return { pair, pub: new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)) };
 }
 
+/** A real promise, a key and a nonce are exact shapes; anything else stops pairing. */
+export const isPromise = (text) => typeof text === "string" && /^[A-Za-z0-9+/]{43}=$/.test(text);
+export const isKey = (bytes) => bytes.length === 65 && bytes[0] === 4;
+export const isNonce = (bytes) => bytes.length === 32;
+
 export const newNonce = () => crypto.getRandomValues(new Uint8Array(32));
 
 /** The phone's promise of its key, sent before it can see the page's. */

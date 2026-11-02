@@ -57,7 +57,7 @@
 </footer>
 <script type="module">
   // Pairing and the sealed relay, with made-up data only (DEC-0062).
-  import { RELAY, commitment, confirmation, confirmed, derive, fromBase64, newKeyPair, newNonce, sealer, toBase64 } from "./sealed.js";
+  import { RELAY, commitment, confirmation, confirmed, derive, fromBase64, isKey, isNonce, isPromise, newKeyPair, newNonce, sealer, toBase64 } from "./sealed.js";
 
   const $ = (id) => document.getElementById(id);
   const say = (text) => { $("facts").textContent = text; };
@@ -91,8 +91,9 @@
     const abandon = (why) => { over = true; socket.close(); stopped(why); };
 
     const finish = async () => {
-      if (!agreed || !proof || saved) return;
+      if (!agreed || !proof || saved || over) return;
       if (!await confirmed(found.confirmPhone, found.transcript, proof)) return abandon("Pairing stopped: the proof was wrong.");
+      if (over) return;
       socket.send(JSON.stringify({ t: "ok", mac: await confirmation(found.confirmPage, found.transcript) }));
       saved = { room: found.room, send: toBase64(found.send), receive: toBase64(found.receive), highest: 0 };
       remember();
@@ -109,19 +110,23 @@
     socket.onmessage = async (event) => {
       let message;
       try { message = JSON.parse(event.data); } catch (e) { return abandon("Pairing stopped: a bad message."); }
+      if (over) return;
       if (message.t === "commit") {
+        if (!isPromise(message.c)) return abandon("Pairing stopped: a bad message.");
         if (promised) { if (message.c !== promised) abandon("Pairing stopped: the promise changed."); return; }
         promised = message.c;
         socket.send(JSON.stringify({ t: "hello", pub: toBase64(pub), nonce: toBase64(nonce) }));
       } else if (message.t === "reveal" && promised && !found) {
-        const phonePub = fromBase64(message.pub);
-        const phoneNonce = fromBase64(message.nonce);
+        let phonePub, phoneNonce;
+        try { phonePub = fromBase64(message.pub); phoneNonce = fromBase64(message.nonce); } catch (e) { return abandon("Pairing stopped: a bad message."); }
+        if (!isKey(phonePub) || !isNonce(phoneNonce)) return abandon("Pairing stopped: a bad message.");
         if (await commitment(phonePub, phoneNonce) !== promised) return abandon("Pairing stopped: the key wasn't the one promised.");
         found = await derive(keys.privateKey, phonePub, pub, phonePub, nonce, phoneNonce);
+        if (over) return;
         $("big").textContent = found.check.slice(0, 4) + " " + found.check.slice(4);
         say("Does your phone show the same number?");
         $("sure").hidden = false;
-        $("match").focus();
+        $("differ").focus();  // a stray tap must never agree
       } else if (message.t === "ok" && found && !proof) {
         proof = message.mac;
         finish();

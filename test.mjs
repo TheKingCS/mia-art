@@ -1,5 +1,5 @@
 // The sealed relay's crypto: node test.mjs
-import { commitment, confirmation, confirmed, derive, newKeyPair, newNonce, sealer, PAGE_TO_PHONE, PHONE_TO_PAGE, fromBase64, toBase64 } from "./sealed.js";
+import { isKey, isNonce, isPromise, commitment, confirmation, confirmed, derive, newKeyPair, newNonce, sealer, PAGE_TO_PHONE, PHONE_TO_PAGE, fromBase64, toBase64 } from "./sealed.js";
 
 let failed = 0;
 const check = (name, ok) => { console.log((ok ? "ok    " : "FAILED") + " " + name); if (!ok) failed++; };
@@ -36,6 +36,13 @@ check("a proof from another key is refused", !await confirmed(a.confirmPhone, a.
   await confirmation(phoneSees.confirmPhone, phoneSees.transcript)));
 check("the page's proof can't pass as the phone's", !await confirmed(a.confirmPhone, a.transcript,
   await confirmation(a.confirmPage, a.transcript)));
+
+// A commit with no real promise must never earn the page's key.
+check("a real promise passes", isPromise(promise));
+for (const bad of [undefined, null, "", 0, false, {}, [], "short", promise + "A"]) check(`not a promise: ${JSON.stringify(bad)}`, !isPromise(bad));
+check("a real key and nonce pass", isKey(phone.pub) && isNonce(phoneNonce));
+check("a short key is refused", !isKey(phone.pub.subarray(1)));
+check("a short nonce is refused", !isNonce(phoneNonce.subarray(1)));
 
 const glasses = sealer(a.send, a.receive);
 const handset = sealer(a.receive, a.send);
