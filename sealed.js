@@ -23,26 +23,48 @@ export async function newKeyPair() {
   return { pair, pub: new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)) };
 }
 
+export const newNonce = () => crypto.getRandomValues(new Uint8Array(32));
+
+/** The phone's promise of its key, sent before it can see the page's. */
+export async function commitment(pub, nonce) {
+  return toBase64(await crypto.subtle.digest("SHA-256", join(pub, nonce)));
+}
+
 async function expand(ikm, salt, info) {
   const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
   return new Uint8Array(await crypto.subtle.deriveBits(
     { name: "HKDF", hash: "SHA-256", salt, info: words.encode(info) }, key, 256));
 }
 
-/** Everything both sides derive. `mine` is this side's private key; the
- *  public keys always go page first, so both sides get the same answer. */
-export async function derive(mine, theirPub, pagePub, phonePub) {
+/** Everything both sides derive. `mine` is this side's private key. The
+ *  transcript binds both keys and both nonces, page first on both sides. */
+export async function derive(mine, theirPub, pagePub, phonePub, pageNonce, phoneNonce) {
   const peer = await crypto.subtle.importKey("raw", theirPub, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: peer }, mine, 256));
-  const salt = new Uint8Array(await crypto.subtle.digest("SHA-256", join(words.encode("mia-relay-v1"), pagePub, phonePub)));
+  const salt = new Uint8Array(await crypto.subtle.digest("SHA-256",
+    join(words.encode("mia-relay-v2"), pagePub, phonePub, pageNonce, phoneNonce)));
   const check = await expand(shared, salt, "check");
   const room = await expand(shared, salt, "room");
   return {
-    check: String(new DataView(check.buffer).getUint32(0) % 1000000).padStart(6, "0"),
+    transcript: salt,
+    check: String(new DataView(check.buffer).getUint32(0) % 100000000).padStart(8, "0"),
     room: [...room].map((b) => b.toString(16).padStart(2, "0")).join(""),
     send: await expand(shared, salt, PAGE_TO_PHONE),
     receive: await expand(shared, salt, PHONE_TO_PAGE),
+    confirmPhone: await expand(shared, salt, "confirm-phone"),
+    confirmPage: await expand(shared, salt, "confirm-page"),
   };
+}
+
+const macKey = (bytes, use) => crypto.subtle.importKey("raw", bytes, { name: "HMAC", hash: "SHA-256" }, false, [use]);
+
+/** Proof that a side holds the key, over everything said in pairing. */
+export async function confirmation(key, transcript) {
+  return toBase64(await crypto.subtle.sign("HMAC", await macKey(key, "sign"), transcript));
+}
+
+export async function confirmed(key, transcript, mac) {
+  return crypto.subtle.verify("HMAC", await macKey(key, "verify"), fromBase64(mac), transcript);
 }
 
 const aes = (bytes, use) => crypto.subtle.importKey("raw", bytes, "AES-GCM", false, [use]);

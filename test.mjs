@@ -1,5 +1,5 @@
 // The sealed relay's crypto: node test.mjs
-import { derive, newKeyPair, sealer, PAGE_TO_PHONE, PHONE_TO_PAGE, fromBase64, toBase64 } from "./sealed.js";
+import { commitment, confirmation, confirmed, derive, newKeyPair, newNonce, sealer, PAGE_TO_PHONE, PHONE_TO_PAGE, fromBase64, toBase64 } from "./sealed.js";
 
 let failed = 0;
 const check = (name, ok) => { console.log((ok ? "ok    " : "FAILED") + " " + name); if (!ok) failed++; };
@@ -7,19 +7,35 @@ const refused = async (work) => { try { await work(); return false; } catch { re
 
 const page = await newKeyPair();
 const phone = await newKeyPair();
-const a = await derive(page.pair.privateKey, phone.pub, page.pub, phone.pub);
-const b = await derive(phone.pair.privateKey, page.pub, page.pub, phone.pub);
+const pageNonce = newNonce();
+const phoneNonce = newNonce();
+const a = await derive(page.pair.privateKey, phone.pub, page.pub, phone.pub, pageNonce, phoneNonce);
+const b = await derive(phone.pair.privateKey, page.pub, page.pub, phone.pub, pageNonce, phoneNonce);
 check("both sides reach the same check code", a.check === b.check);
 check("both sides reach the same room", a.room === b.room);
-check("the check code is six digits", /^\d{6}$/.test(a.check));
+check("the check code is eight digits", /^\d{8}$/.test(a.check));
 check("the room says nothing of the check", !a.room.includes(a.check));
 
-// A relay in the middle gives each side its own key instead of the other's.
+// The promise: a key that wasn't the one promised is caught.
+const promise = await commitment(phone.pub, phoneNonce);
 const thief = await newKeyPair();
-const pageSees = await derive(page.pair.privateKey, thief.pub, page.pub, thief.pub);
-const phoneSees = await derive(phone.pair.privateKey, thief.pub, thief.pub, phone.pub);
+check("the promised key matches", promise === await commitment(phone.pub, phoneNonce));
+check("another key doesn't match the promise", promise !== await commitment(thief.pub, phoneNonce));
+check("another nonce doesn't match the promise", promise !== await commitment(phone.pub, newNonce()));
+
+// A relay in the middle gives each side its own key instead of the other's.
+const pageSees = await derive(page.pair.privateKey, thief.pub, page.pub, thief.pub, pageNonce, phoneNonce);
+const phoneSees = await derive(phone.pair.privateKey, thief.pub, thief.pub, phone.pub, pageNonce, phoneNonce);
 check("a swapped key shows different codes", pageSees.check !== phoneSees.check);
 check("a swapped key gives a different room", pageSees.room !== phoneSees.room);
+
+// A plain "ok" is worth nothing without the key.
+const proof = await confirmation(b.confirmPhone, b.transcript);
+check("the phone's proof is accepted", await confirmed(a.confirmPhone, a.transcript, proof));
+check("a proof from another key is refused", !await confirmed(a.confirmPhone, a.transcript,
+  await confirmation(phoneSees.confirmPhone, phoneSees.transcript)));
+check("the page's proof can't pass as the phone's", !await confirmed(a.confirmPhone, a.transcript,
+  await confirmation(a.confirmPage, a.transcript)));
 
 const glasses = sealer(a.send, a.receive);
 const handset = sealer(a.receive, a.send);
