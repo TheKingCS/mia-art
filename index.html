@@ -32,12 +32,22 @@
   nav { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   button { font: inherit; color: #dff6ff; background: transparent; border: 2px solid rgba(53,212,255,.45); border-radius: 12px; padding: 8px 14px; }
   button:focus { outline: 3px solid var(--accent); }
-  nav[hidden], button[hidden] { display: none; }
+  nav[hidden], button[hidden], #cards[hidden] { display: none; }
+  body.home main { align-content: start; justify-items: center; padding: 18px 24px 0; }
+  body.home #wrap { width: 120px; height: 120px; transform: none; }
+  body.home #orb { inset: 26px; }
+  body.home .r1 { inset: 12px; }
+  body.home .r2 { inset: 2px; }
+  #cards { list-style: none; margin: 8px 0 0; padding: 0; inline-size: 100%; display: grid; gap: 6px; }
+  #cards li { display: flex; justify-content: space-between; gap: 14px; font-size: 20px; border-bottom: 1px solid rgba(53,212,255,.2); padding-bottom: 4px; }
+  #cards b { font-weight: 600; color: #dff6ff; flex: none; }
+  #cards span { color: var(--soft); text-align: end; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cards li.attention span { color: #fff; }
   #big { text-align: center; font-size: 48px; letter-spacing: 6px; color: var(--soft); }
 </style>
 </head>
 <body>
-<main><div id="wrap"><div class="ring r1"></div><div class="ring r2"></div><div id="orb"></div></div></main>
+<main><div id="wrap"><div class="ring r1"></div><div class="ring r2"></div><div id="orb"></div></div><ul id="cards" hidden></ul></main>
 <footer>
   <div id="big"></div>
   <div id="facts"></div>
@@ -48,10 +58,7 @@
   <nav><button id="restart" hidden>Pair Again</button></nav>
   <nav id="tests" hidden>
     <button id="listen" autofocus>Listen</button>
-    <button id="ask">Ask</button>
-    <button id="blocked">Blocked</button>
-    <button id="replay">Replay</button>
-    <button id="bent">Tamper</button>
+    <button id="refresh">Refresh</button>
     <button id="again">Pair Again</button>
   </nav>
 </footer>
@@ -140,6 +147,22 @@
     };
   }
 
+  function showHome(cards) {
+    document.body.classList.add("home");
+    $("cards").hidden = false;
+    say("");
+    $("cards").replaceChildren(...cards.map((card) => {
+      const row = document.createElement("li");
+      if (card.tone === "attention") row.className = "attention";
+      const name = document.createElement("b");
+      name.textContent = card.name;
+      const line = document.createElement("span");
+      line.textContent = card.status;
+      row.append(name, line);
+      return row;
+    }));
+  }
+
   function connect() {
     const box = sealer(fromBase64(saved.send), fromBase64(saved.receive), saved.highest || 0);
     const socket = new WebSocket(`${RELAY}/${saved.room}?role=page`);
@@ -158,7 +181,7 @@
       clearTimeout(waiting);
       waiting = setTimeout(() => say("no answer: the phone refused it"), 3000);
     };
-    socket.onopen = () => { $("tests").hidden = false; $("listen").focus(); say("connected"); };
+    socket.onopen = () => { $("tests").hidden = false; $("listen").focus(); say(""); ask("/glasses/home"); };
     socket.onmessage = async (event) => {
       try {
         const reply = await box.open(event.data);
@@ -166,26 +189,18 @@
         remember();
         if (!asked.delete(reply.id)) return say("refused an answer nobody asked for");
         clearTimeout(waiting);
-        say(reply.status === 200 ? reply.body.hello || "listening" : `refused by the phone (${reply.status})`);
+        if (reply.status !== 200) return say("I can't reach that right now");
+        if (reply.body.cards) showHome(reply.body.cards); else say("listening");
       } catch (e) { say("refused a message from the relay"); }
     };
     socket.onclose = () => { $("tests").hidden = true; say("reconnecting"); setTimeout(connect, 3000); };
     $("again").onclick = () => { try { localStorage.removeItem(STORE); } catch (e) {} location.reload(); };
     $("listen").onclick = () => {
-      document.body.className = "listening";
-      setTimeout(() => { document.body.className = ""; }, 6000);
+      document.body.classList.add("listening");
+      setTimeout(() => document.body.classList.remove("listening"), 6000);
       ask("/voice/listen");
     };
-    $("ask").onclick = () => ask("/test/hello");
-    $("blocked").onclick = () => ask("/api/state");
-    $("replay").onclick = () => { if (last) { say("sent the last message again"); socket.send(last); expectReply(); } };
-    $("bent").onclick = async () => {
-      const bytes = fromBase64(await box.seal({ id: newId(), path: "/test/hello" }));
-      bytes[20] ^= 1;
-      say("sent a changed message");
-      socket.send(toBase64(bytes));
-      expectReply();
-    };
+    $("refresh").onclick = () => ask("/glasses/home");
   }
 
   if (saved) connect(); else pair();
