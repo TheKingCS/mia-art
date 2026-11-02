@@ -50,7 +50,7 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private window: just don't remember */ } },
   };
   let data = null;           // MIA.glasses(): {apps, others, pinned, hint}
-  let view = "home";         // home | cards | menu | panel | confirm | result | reward | hud | log | boot | sync
+  let view = "home";         // home | cards | menu | panel | confirm | result | reward | hud | log | boot | sync | welcome
   let showingAll = false;    // browsing the apps that aren't pinned
   let appIndex = 0, row = 0;
   let panel = null, proposal = null, resultText = "", after = "menu", busy = false;
@@ -69,11 +69,12 @@
   const ALL = { id: "__all", name: "All Apps" };
   const BACK_CARD = { id: "__back", name: "Back", status: "To your pinned apps" };
   const LOG_CARD = { id: "__log", name: "Conversation", status: "Everything you and MIA have said" };
+  const WELCOME_CARD = { id: "__welcome", name: "Know Your System", status: "Your first mission and the tours" };
   const SYNC_CARD = { id: "__sync", name: "Getting To Know You", status: "Pick up where we left off" };
   function cards() {
     const d = data || {};
     if (showingAll) return (d.others || []).concat([BACK_CARD]);
-    const list = (syncLeft ? [SYNC_CARD] : []).concat(d.apps || []);
+    const list = (syncLeft ? [SYNC_CARD] : welcomeLeft ? [WELCOME_CARD] : []).concat(d.apps || []);
     // The log comes last: one move back from the orb reaches it.
     return (d.pinned && (d.others || []).length
       ? list.concat([Object.assign({}, ALL, { status: d.others.length + " more apps" })]) : list).concat([LOG_CARD]);
@@ -438,6 +439,7 @@
     if (now.done || now.paused) {
       show("home");
       if (say) { answer(say, 9); sayHere(say); }
+      if (now.done) setTimeout(startWelcome, WELCOME_WAIT_MS);
       return;
     }
     sayHere(say);
@@ -502,6 +504,119 @@
     foot.append(el("span", "", "User Sync"), el("div", "m-bar", '<i style="width:' + Number(s.percent || 0) + '%"></i>'));
     wrap.append(foot);
     return wrap;
+  }
+
+  // ------------------------------------------------------------ the first mission and tours (core/welcome.py)
+  // "Synchronization complete", the mission, Home's tour, the app menu with
+  // its optional tours, then she hands over. Select goes on, move picks, back
+  // leaves it for later: a card brings it back. Stages and words are the engine's.
+  const WELCOME_WAIT_MS = 7000, READY_MS = 6000;
+  let welcome = null, welcomeLeft = false, welcomeRow = 0, welcomeActs = false, welcomeAct = 0, readyUntil = 0;
+  const APP_ACTS = [["tour", "Start tour"], ["open", "Just open it"], ["later", "Later"]];
+  async function checkWelcome() {
+    try { const now = await MIA.welcome(); welcomeLeft = !!(now && now.left); return now; }
+    catch (e) { welcomeLeft = false; return null; }
+  }
+  function paintWelcome(now, say) {
+    welcome = now; welcomeLeft = !!now.left; welcomeRow = 0; welcomeActs = false; welcomeAct = 0;
+    if (now.open !== undefined) {
+      show("home");
+      const at = cards().findIndex((c) => c.id === now.open);
+      if (at >= 0) { appIndex = at; menuIndex = 0; row = 0; show("menu"); }
+      return;
+    }
+    if (!now.left || now.paused) { show("home"); if (say) { answer(say, 6); sayHere(say); } return; }
+    sayHere(say);
+    show("welcome");
+  }
+  async function startWelcome() {
+    if (view !== "home") return;
+    const now = await checkWelcome();
+    if (!now || !now.left || now.paused) return;
+    if (now.ready) { readyUntil = Date.now() + READY_MS; setTimeout(render, READY_MS + 50); }
+    paintWelcome(now);
+  }
+  async function welcomeStep(choice, appId) {
+    try { const now = await MIA.welcomeStep({ choice, app: appId || "" }); paintWelcome(now, now.say); }
+    catch (err) { answer(err.message, 6); }
+  }
+  function welcomeFrame(parts, hintHtml, label, percent) {
+    const wrap = el("div", "sync welcome");
+    ["tl", "tr", "bl", "br"].forEach((k) => wrap.append(el("i", "rc " + k)));
+    wrap.append(...parts, el("p", "s-hint", hintHtml));
+    const foot = el("div", "s-foot");
+    foot.append(el("span", "", esc(label)), el("div", "m-bar", '<i style="width:' + Number(percent || 0) + '%"></i>'));
+    wrap.append(foot);
+    return wrap;
+  }
+  function tiles(list) {
+    const grid = el("div", "w-tiles");
+    list.forEach((t) => grid.append(el("div", "w-tile" + (t.on ? " on" : ""), t.html || esc(t.label))));
+    return grid;
+  }
+  function welcomeScreen() {
+    const w = welcome || {};
+    if (Date.now() < readyUntil) {
+      const box = el("div", "w-ready");
+      box.append(el("i", "log-orb"), el("p", "w-big", "Synchronization complete."), el("p", "s-label", "Your system is ready"));
+      return welcomeFrame([box], "", "Sync complete", 100);
+    }
+    if (w.stage === "mission") {
+      const m = w.mission, box = el("div", "w-card");
+      box.append(el("p", "s-label", "Tutorial · Mission 1"), el("h1", "s-q", esc(m.name)), el("p", "w-sum", esc(m.summary)));
+      m.objectives.forEach((o) => box.append(el("p", "w-obj" + (o.done ? " on" : ""), (o.done ? "✓ " : "○ ") + esc(o.text))));
+      const top = el("p", "s-label", "Mission unlocked · +" + esc(m.xp) + " XP");
+      return welcomeFrame([top, box], "<b>●</b> begin &nbsp;·&nbsp; <b>▼</b> later", "Welcome", m.percent);
+    }
+    if (w.tour) {
+      const t = w.tour, box = el("div", "w-card");
+      box.append(el("div", "s-top", "<span>" + esc(t.name) + "</span><span>" + esc(t.number) + " of " + esc(t.of) + "</span>"), el("p", "w-sum", esc(t.text)));
+      return welcomeFrame([tiles(t.tiles), box], "<b>●</b> next &nbsp;·&nbsp; <b>▶</b> skip the tour &nbsp;·&nbsp; <b>▼</b> later", t.name + " tour", 100 * t.number / t.of);
+    }
+    if (w.stage === "apps") {
+      const a = w.apps[welcomeRow] || {};
+      const box = el("div", "w-card");
+      box.append(el("p", "s-label", esc(a.name)), el("p", "w-sum", esc(a.intro ? [a.intro.what].concat(a.intro.yours).join(" ") : "")));
+      if (welcomeActs) {
+        const acts = el("div", "s-chips");
+        APP_ACTS.forEach((act, i) => acts.append(el("div", "s-chip" + (i === welcomeAct ? " sel" : ""), esc(act[1]))));
+        box.append(acts);
+      }
+      const list = w.apps.map((x, i) => ({ on: i === welcomeRow, html: esc(x.name) + "<small>" + esc(x.status) + "</small>" }));
+      const top = el("div", "s-top", "<span>Your apps</span><span>Every tour is optional</span>");
+      return welcomeFrame([top, tiles(list), box], welcomeActs ? "<b>▶</b> move &nbsp;·&nbsp; <b>●</b> choose &nbsp;·&nbsp; <b>▼</b> back"
+        : "<b>▶</b> move &nbsp;·&nbsp; <b>●</b> this one &nbsp;·&nbsp; <b>▼</b> later", "App menu", w.mission.percent);
+    }
+    const box = el("div", "w-end");
+    box.append(el("p", "s-label", "✓ Mission complete · " + esc(w.mission.name) + " · +" + esc(w.mission.xp) + " XP"),
+      el("p", "w-sum", "You don't have to figure everything out today. Whenever you need me, just tap and talk."),
+      el("p", "w-big", "Now then… what would you like to do first?"));
+    const ideas = el("div", "s-chips");
+    w.ideas.forEach((idea, i) => ideas.append(el("div", "s-chip" + (i === welcomeRow ? " sel" : ""), esc(idea.label))));
+    box.append(ideas);
+    return welcomeFrame([box], "<b>▶</b> move &nbsp;·&nbsp; <b>●</b> choose", "Yours to explore", 100);
+  }
+  function welcomeMove(dir) {
+    const w = welcome;
+    if (w.stage === "home" || w.stage === "tour") { if (dir > 0) welcomeStep("skip"); return; }
+    if (welcomeActs) welcomeAct = (welcomeAct + dir + APP_ACTS.length) % APP_ACTS.length;
+    else if (w.stage === "apps") welcomeRow = (welcomeRow + dir + w.apps.length) % w.apps.length;
+    else if (w.stage === "explore") welcomeRow = (welcomeRow + dir + w.ideas.length) % w.ideas.length;
+    render();
+  }
+  async function welcomeSelect() {
+    const w = welcome;
+    if (Date.now() < readyUntil) return;
+    if (w.stage === "mission") { await welcomeStep("begin"); return; }
+    if (w.stage === "home" || w.stage === "tour") { await welcomeStep("next"); return; }
+    if (w.stage === "apps" && !welcomeActs) { welcomeActs = true; welcomeAct = 0; render(); return; }
+    if (w.stage === "apps") { await welcomeStep(APP_ACTS[welcomeAct][0], w.apps[welcomeRow].id); return; }
+    const idea = w.ideas[welcomeRow];
+    await welcomeStep("finish");
+    if (idea.say) { resultText = "…"; after = "home"; show("result");
+      try { const turn = await MIA.talk(idea.say); resultText = turn.reply_text || "Done."; } catch (err) { resultText = err.message; }
+      render();
+    } else listen();
   }
 
   // ------------------------------------------------------------ Ambient: the whole conversation
@@ -622,6 +737,8 @@
       parts.push(logScreen());
     } else if (view === "sync") {
       parts.push(syncScreen());
+    } else if (view === "welcome") {
+      parts.push(welcomeScreen());
     }
     screen.replaceChildren(...parts);
   }
@@ -681,8 +798,12 @@
   function heard(c) {
     if (view === "boot") return;
     lastInput = Date.now();
+    if (view === "welcome") {  // "next", "skip the tour": the screen follows
+      MIA.welcome().then((now) => { if (view === "welcome") paintWelcome(now); }).catch(() => {});
+      return;
+    }
     if (c.sync) {  // an answer in User Sync, from wherever this screen is
-      refreshSync().then(() => { if (view !== "sync" && syncLeft) startSync(); });
+      refreshSync().then(() => { if (view !== "sync") { if (syncLeft) startSync(); else startWelcome(); } });
       return;
     }
     if (c.open !== undefined) {
@@ -781,6 +902,7 @@
       else if (dir > 0) syncStep({ choice: "skip" });
       return;
     }
+    if (view === "welcome") { welcomeMove(dir); return; }
     if (view === "log") {
       const box = document.querySelector(".log-scroll");
       if (box) box.scrollTop += dir * LOG_STEP;
@@ -827,6 +949,7 @@
     if (view === "boot") { bootPause(); return; }
     if (view === "hud") { show("home"); return; }
     if (view === "home" || view === "log") { listen(); return; }
+    if (view === "welcome") { await welcomeSelect(); return; }
     if (view === "sync") {
       if (sync.step === "phone") { await syncStep({ choice: "skip" }); return; }
       if (sync.step === "next") { await syncStep({ choice: "continue" }); return; }
@@ -837,6 +960,7 @@
     if (view === "cards") {
       if (!a) return;
       if (a.id === "__sync") { await startSync(); return; }
+      if (a.id === "__welcome") { await welcomeStep("resume"); return; }
       if (a.id === "__log") { await openLog(); return; }
       if (a.id === "__all") { showingAll = true; appIndex = 0; render(); return; }
       if (a.id === "__back") { showingAll = false; appIndex = Math.max(0, cards().length - 1); render(); return; }
@@ -944,6 +1068,10 @@
     if (busy) return;
     if (view === "boot") { skipBoot(); return; }
     if (view === "sync") { syncStep({ choice: "later" }); return; }
+    if (view === "welcome") {
+      if (welcomeActs) { welcomeActs = false; render(); } else welcomeStep("later");
+      return;
+    }
     if (view === "hud" || view === "log") { show("home"); return; }
     if (view === "home") {
       if (voiceState === "answered") { orbState("idle"); return; }
@@ -1001,6 +1129,7 @@
     if (!(await startBoot())) {
       show("home");
       if (left && (left.active || left.offer)) await startSync();  // left mid-way: back to it. Paused stays a card.
+      else await startWelcome();
     }
     if (!demo) hudFetch();  // the feed's cursor: from now on
   })();

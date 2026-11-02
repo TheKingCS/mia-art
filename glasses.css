@@ -19,7 +19,7 @@
   --fit: 1;
 }
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; touch-action: none; overscroll-behavior: none; }
+html, body { height: 100%; margin: 0; overscroll-behavior: none; }
 body {
   background: #000; color: var(--ink); overflow: hidden;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -185,6 +185,17 @@ body {
 .s-row.on { color: var(--ink); }
 .s-note { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); }
 .s-row.on .s-note { color: var(--accent-soft); }
+.w-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.w-tile { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; min-height: 58px; padding: 4px;
+  border: 1px solid var(--accent-dim); border-radius: 10px; font-size: 13px; text-align: center; color: var(--ink-faint); }
+.w-tile.on { border-color: var(--accent); color: var(--ink); background: rgba(53, 212, 255, 0.1); box-shadow: 0 0 14px rgba(53, 212, 255, 0.35); }
+.w-tile small { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-soft); }
+.w-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid var(--accent-dim); border-radius: 10px; }
+.w-sum { margin: 0; font-weight: 300; font-size: 16px; line-height: 1.45; color: var(--ink-dim); }
+.w-obj { margin: 0; font-weight: 300; font-size: 15px; color: var(--ink); }
+.w-obj.on { color: var(--ink-faint); text-decoration: line-through; }
+.w-big { margin: 0; font-weight: 300; font-size: 26px; line-height: 1.3; color: var(--ink); }
+.w-ready, .w-end { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; flex: 1; text-align: center; }
 .s-hint { margin: auto 0 0; text-align: center; font-size: 13px; color: var(--ink-faint); }
 .s-hint b { color: var(--accent); font-weight: 400; }
 .s-foot { display: flex; align-items: center; gap: 14px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.2em;
