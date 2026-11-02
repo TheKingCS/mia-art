@@ -128,6 +128,7 @@
         $("sure").hidden = false;
         $("differ").focus();  // a stray tap must never agree
       } else if (message.t === "ok" && found && !proof) {
+        if (!isPromise(message.mac)) return abandon("Pairing stopped: a bad message.");
         proof = message.mac;
         finish();
       }
