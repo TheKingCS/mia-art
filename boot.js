@@ -177,11 +177,13 @@ window.MIA = {
     .then((got) => ({ ...got, messages: (got.messages || []).filter((m) => m.content) })),
   shell: notHere, speak: notHere, image: notHere,
   // Her awakening saves each step as propose-then-approve; the phone does both.
+  // Anything else is a reference the phone offered: this page never names a change.
   propose: (kind, params) => (kind.startsWith("firstboot.")
-    ? ask("/firstboot/step", { kind, params: params || {} }).then(() => ({ proposal_id: "" })) : notHere()),
-  approve: (id) => (id === "" ? Promise.resolve({}) : notHere()),
+    ? ask("/firstboot/step", { kind, params: params || {} }).then(() => ({ proposal_id: "" }))
+    : kind === "offer" ? ask("/action/propose", { ref: params.ref }) : notHere()),
+  approve: (id) => (id === "" ? Promise.resolve({}) : ask("/action/approve", { id })),
   talk: notHere, voice: notHere,
-  reject: () => Promise.resolve(),
+  reject: (id) => (id === "" ? Promise.resolve() : ask("/action/reject", { id })),
 };
 
 // ------------------------------------------------------------ Back

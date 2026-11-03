@@ -53,7 +53,7 @@
   let view = "home";         // home | cards | menu | panel | confirm | result | reward | hud | log | boot | sync | welcome
   let showingAll = false;    // browsing the apps that aren't pinned
   let appIndex = 0, row = 0;
-  let panel = null, proposal = null, resultText = "", after = "menu", busy = false;
+  let panel = null, proposal = null, resultText = "", after = "menu", busy = false, crumbs = [];
   let reward = null, rewardTimer = null;
   let mission = store.get("mia.glasses.mission") || "";
 
@@ -251,6 +251,82 @@
   }
   const BACK_ROW = { text: "Back", back: true, kind: "back" };
 
+  // An app's own screens: the frame from the design (corners, where you are,
+  // what move and select do), its numbers, and its rows.
+  function appFrame(a, where, pos, children, doing) {
+    const wrap = el("div", "sync app-screen");
+    ["tl", "tr", "bl", "br"].forEach((k) => wrap.append(el("i", "rc " + k)));
+    const top = el("div", "s-top");
+    const who = el("span", "s-who");
+    const icon = window.MIAIcons && MIAIcons.svg(a.id);
+    if (icon) who.append(icon);
+    who.append(el("span", "", esc(a.name)));
+    top.append(who, el("span", "", esc(where || "") + (pos ? " · " + esc(pos) : "")));
+    wrap.append(top, ...children, el("p", "s-hint", "<b>▶</b> move &nbsp;·&nbsp; <b>●</b> " + esc(doing) + " &nbsp;·&nbsp; <b>▼</b> back"));
+    return wrap;
+  }
+  function appTiles(a) {
+    const list = a.tiles || [];
+    if (!list.length) return [];
+    return [tiles(list.map((t) => ({ on: t.tone === "attention", html: "<b>" + esc(t.value) + "</b><small>" + esc(t.label) + "</small>" })))];
+  }
+  // Home and the app menu, from the boards: her orb and the time, what matters
+  // now, and every app as a tile, eight to a page. Move walks the tiles.
+  const TILES_A_PAGE = 8;
+  function dashScreen(list, a) {
+    const d = data || {};
+    const wrap = el("div", "sync app-screen dash");
+    ["tl", "tr", "bl", "br"].forEach((k) => wrap.append(el("i", "rc " + k)));
+    const top = el("div", "s-top");
+    const who = el("span", "s-who");
+    who.append(el("i", "log-orb"), el("span", "", showingAll ? "All Apps" : "MIA"));
+    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    top.append(who, el("span", "d-time", esc(time)));
+    wrap.append(top);
+    if (!showingAll) {
+      const now = el("div", "d-now");
+      now.append(el("p", "s-label", "Priority now"), el("p", "d-line", esc(d.priority || "Nothing needs you right now.")));
+      wrap.append(now);
+    }
+    const from = Math.floor(appIndex / TILES_A_PAGE) * TILES_A_PAGE;
+    const grid = el("div", "w-tiles");
+    list.slice(from, from + TILES_A_PAGE).forEach((c, i) => {
+      const tile = el("div", "w-tile" + (from + i === appIndex ? " on" : ""));
+      tile.append(badge(c), el("span", "", esc(c.name)));
+      grid.append(tile);
+    });
+    const box = el("div", "w-card");
+    box.append(el("div", "s-top", "<span>" + esc(a.name) + "</span><span>" + (appIndex + 1) + " of " + list.length + "</span>"));
+    const line = a.status || a.tagline || "";
+    if (line) box.append(el("p", "w-sum" + (a.tone === "attention" ? " attn" : ""), esc(line)));
+    wrap.append(grid, box, el("p", "s-hint", "<b>▶</b> move &nbsp;·&nbsp; <b>●</b> open &nbsp;·&nbsp; <b>▼</b> her orb"));
+    return wrap;
+  }
+  // A mission, from the Phase 6 board: its card, each objective ticked or not, the XP.
+  function missionBoard(a, rows) {
+    const m = a.mission;
+    const box = el("div", "w-card m-board");
+    if (!m) box.append(el("h1", "s-q", "No active mission"), el("p", "w-sum", "Start one on your phone or ask MIA."));
+    else {
+      box.append(el("p", "s-label", m.ready ? "Ready to claim" : "Mission"), el("h1", "s-q", esc(m.name)));
+      const shown = m.objectives.slice(0, 4);
+      shown.forEach((o) => {
+        const row = el("div", "m-obj" + (o.done ? " on" : ""));
+        row.append(el("i", "chk", o.done ? "✓" : ""), el("span", "", esc(o.text)));
+        if (!o.done && o.target && o.target !== 1) row.append(el("em", "", esc(o.progress || 0) + "/" + esc(o.target)));
+        box.append(row);
+      });
+      if (m.objectives.length > shown.length) box.append(el("p", "more", "+ " + (m.objectives.length - shown.length) + " more"));
+      const pct = m.total ? Math.round(100 * m.done / m.total) : 0;
+      const foot = el("div", "s-foot");
+      foot.append(el("span", "", esc(m.done) + " of " + esc(m.total)), el("div", "m-bar", '<i style="width:' + pct + '%"></i>'));
+      if (m.reward_xp) foot.append(el("span", "m-xp", "+" + esc(m.reward_xp) + " XP"));
+      box.append(foot);
+    }
+    const chips = el("div", "s-chips");
+    rows.forEach((r, i) => chips.append(el("div", "s-chip" + (i === row ? " sel" : ""), esc(r.back ? "Back" : r.text))));
+    return [box, chips];
+  }
   function menuRows(a) {
     return (a.menu || []).map((m) => ({ text: (m.type === "action" ? "★ " : "") + m.label, cap: true,
       verb: m.type === "ask" ? "ask" : m.type === "action" ? "" : "›" }))
@@ -272,10 +348,12 @@
     panel.lines.forEach((l) => {
       if (want && l.bucket !== want) return;
       rows.push({ kind: "line", line: l, text: l.text, detail: l.detail, tone: l.tone,
-        verb: l.action ? l.action.label : l.pick ? l.pick.label : l.recipe ? "Open" : "" });
+        verb: actionOf(l) ? actionOf(l).label : l.pick ? l.pick.label : l.recipe ? "Open" : "" });
     });
     return rows.concat([BACK_ROW]);
   }
+  // Through the relay the phone offers a reference in place of the action (DEC-0064).
+  function actionOf(line) { return line.action || line.offered || null; }
   function isCarousel() { return !!(panel && panel.lines.length && panel.lines[0].recipe); }
 
   // A recipe on the glasses: its picture first, then its ingredients
@@ -495,9 +573,10 @@
       chips.append(yes);
       wrap.append(el("p", "s-label", "MIA is setting up"), chips);
     }
+    if (s.phone_only) wrap.append(el("p", "s-label", "Money stays on your phone"));
     const SYNC_HINTS = { phone: "<b>●</b> skip this for now &nbsp;·&nbsp; <b>▼</b> finish later",
       next: "<b>●</b> keep going &nbsp;·&nbsp; <b>▶</b> skip this topic &nbsp;·&nbsp; <b>▼</b> finish later" };
-    wrap.append(el("p", "s-hint", SYNC_HINTS[s.step] || (s.step === "review"
+    wrap.append(el("p", "s-hint", s.phone_only ? "<b>▶</b> skip that one &nbsp;·&nbsp; <b>▼</b> finish later" : SYNC_HINTS[s.step] || (s.step === "review"
       ? (syncRow === n ? "<b>●</b> save these" : "<b>●</b> drop this one") + " &nbsp;·&nbsp; <b>▶</b> next &nbsp;·&nbsp; <b>▼</b> finish later"
       : "Answer out loud &nbsp;·&nbsp; <b>▶</b> skip that one &nbsp;·&nbsp; <b>▼</b> finish later")));
     const foot = el("div", "s-foot");
@@ -654,25 +733,13 @@
       const list = cards();
       if (!a) {
         parts.push(kicker("Apps"), el("div", "body", '<p class="empty">MIA couldn\'t load your apps.</p>'), hint("back"));
-      } else if (a.id === "missions" && a.mission !== undefined) {
-        parts.push(kicker(a.name, (appIndex + 1) + " / " + list.length), missionCard(a.mission), hint("select mission"));
       } else {
-        const d = data || {};
-        const where = showingAll ? "All Apps" : d.pinned ? "Pinned" : "Apps";
-        const body = el("div", "body");
-        const card = el("div", "card");
-        card.append(badge(a), el("p", "name", esc(a.name)));
-        const line = a.status || a.tagline || (!d.pinned && d.hint && !showingAll ? d.hint : "");
-        if (line) card.append(el("p", "status" + (a.tone === "attention" ? " attn" : ""), esc(line)));
-        body.append(card);
-        parts.push(kicker(where, (appIndex + 1) + " / " + list.length), body,
-          hint(a.id === "__all" ? "browse" : a.id === "__back" ? "go back" : "open"));
+        parts.push(dashScreen(list, a));
       }
     } else if (view === "menu") {
       const rows = menuRows(a);
-      const body = el("div", "body");
-      body.append(...rowsOf(rows, row));
-      parts.push(kicker(a.name), body, hint(rows[row] && rows[row].back ? "go back" : "choose"));
+      const inside = a.id === "missions" && a.mission !== undefined ? missionBoard(a, rows) : [...appTiles(a), ...rowsOf(rows, row)];
+      parts.push(appFrame(a, a.id === "missions" ? "" : a.status, "", inside, rows[row] && rows[row].back ? "go back" : "choose"));
     } else if (view === "panel" && isCarousel()) {
       const item = (a.menu || [])[menuIndexOf()] || {};
       const rows = panelRows(), r = rows[row];
@@ -703,7 +770,7 @@
       } else {
         body.append(el("p", "title", "Step " + pg.n + " Of " + recipe.steps.length), el("p", "r-step" + (pg.text.length > 180 ? " long" : ""), esc(pg.text)));
       }
-      parts.push(kicker(recipe.name, (page + 1) + " / " + pages.length), body, hint("back to recipes"));
+      parts.push(kicker(recipe.name, (page + 1) + " / " + pages.length), body, hint(cookNext() ? "I made this" : "back to recipes"));
     } else if (view === "panel") {
       const item = (a.menu || [])[menuIndexOf()] || {};
       const body = el("div", "body");
@@ -718,8 +785,8 @@
       }
       const r = rows[row] || BACK_ROW;
       const line = r.line;
-      parts.push(kicker(a.name + " · " + (item.label || "")), body,
-        hint(r.back ? "go back" : r.kind === "sort" ? "change sort" : line && (line.action || line.pick) ? (line.action || line.pick).label : "—"));
+      parts.push(appFrame(a, (crumbs.length && panel ? panel.label : item.label) || "", "", [body],
+        r.back ? "go back" : r.kind === "sort" ? "change sort" : line && (actionOf(line) || line.pick || line.open) ? (actionOf(line) || line.pick || line.open).label : "—"));
     } else if (view === "confirm") {
       const body = el("div", "body");
       body.append(el("p", "say", esc(proposal ? proposal.summary : "")));
@@ -864,31 +931,6 @@
     return box;
   }
 
-  function missionCard(m) {
-    const body = el("div", "body");
-    const box = el("div", "mission");
-    if (!m) {
-      box.append(el("p", "m-name", "No active mission"), el("p", "m-more", "Start one on your phone or ask MIA."));
-    } else {
-      box.append(el("p", "m-name", esc((m.icon ? m.icon + " " : "") + m.name)));
-      const objs = el("ul", "m-objs");
-      const shown = m.objectives.length > 4 ? 3 : 4;
-      m.objectives.slice(0, shown).forEach((o) => {
-        const li = el("li", o.done ? "done" : "");
-        li.append(el("i", "box", o.done ? "✓" : ""), el("span", "", esc(o.text)));
-        if (!o.done && o.target && o.target !== 1) li.append(el("em", "", (o.progress || 0) + "/" + o.target));
-        objs.append(li);
-      });
-      box.append(objs);
-      if (m.objectives.length > shown) box.append(el("p", "m-more", "+ " + (m.objectives.length - shown) + " more objectives"));
-      const pct = m.total ? Math.round(100 * m.done / m.total) : 0;
-      box.append(el("div", "m-bar", '<i style="width:' + pct + '%"></i>'));
-    }
-    box.append(el("div", "m-button", "Select Mission"));
-    body.append(box);
-    return body;
-  }
-
   // ------------------------------------------------------------ the two moves (and back)
   let menuIndex = 0;
   function menuIndexOf() { return menuIndex; }
@@ -898,7 +940,7 @@
     if (view === "boot") { if (dir > 0) nextBeat(); return; }
     if (view === "hud") { show("home"); return; }
     if (view === "sync") {
-      if (sync.step === "review") { const n = sync.chips.length + 1; syncRow = (syncRow + dir + n) % n; render(); }
+      if (sync.step === "review" && !sync.phone_only) { const n = sync.chips.length + 1; syncRow = (syncRow + dir + n) % n; render(); }
       else if (dir > 0) syncStep({ choice: "skip" });
       return;
     }
@@ -953,7 +995,7 @@
     if (view === "sync") {
       if (sync.step === "phone") { await syncStep({ choice: "skip" }); return; }
       if (sync.step === "next") { await syncStep({ choice: "continue" }); return; }
-      if (sync.step !== "review") return;  // she's listening: answers come out loud
+      if (sync.step !== "review" || sync.phone_only) return;  // she's listening: answers come out loud
       await syncStep(syncRow === sync.chips.length ? { choice: "approve" } : { choice: "drop", index: syncRow });
       return;
     }
@@ -983,14 +1025,18 @@
       await openPanel();
       return;
     }
-    if (view === "recipe") { row = Math.max(0, row); show("panel"); return; }
+    if (view === "recipe") {
+      if (cookNext()) { await propose(recipe.action, "panel"); return; }
+      row = Math.max(0, row); show("panel"); return;
+    }
     if (view === "panel") {
       if (!panel) return;
       const rows = panelRows();
-      if (rows[row].back) { row = menuIndex; panel = null; show("menu"); return; }
+      if (rows[row].back) { leavePanel(); return; }
       if (rows[row].kind === "sort") { sortIndex = (sortIndex + 1) % sorts().length; render(); return; }
       const line = rows[row].line;
       if (line.recipe) { recipe = line.recipe; page = 0; show("recipe"); return; }
+      if (line.open) { await openDeeper(line.open.item); return; }
       if (line.pick) {  // which mission the Missions card shows
         mission = line.pick.mission; store.set("mia.glasses.mission", mission);
         await load();
@@ -999,7 +1045,7 @@
         panel = null; row = 0; show("cards");
         return;
       }
-      if (line.action) await propose(line.action, "panel");
+      if (actionOf(line)) await propose(actionOf(line), "panel");
       return;
     }
     if (view === "confirm") {
@@ -1030,9 +1076,22 @@
     proposal = null;
     if (after === "reload") { row = menuIndex; show("menu"); } else { row = 0; show("panel"); }
   }
+  // One step deeper than a panel (a vehicle in Garage): Back returns to the list.
+  async function openDeeper(item) {
+    crumbs.push(panel); panel = null; row = 0; show("panel");
+    try { panel = await MIA.glassesPanel(app().id, item, mission); }
+    catch (err) { panel = { lines: [], empty: err.message, more: 0 }; }
+    if (view === "panel") render();
+  }
+  function leavePanel() {
+    if (crumbs.length) { panel = crumbs.pop(); row = 0; show("panel"); return; }
+    row = menuIndex; panel = null; show("menu");
+  }
+  // On a recipe's last page, select says you made it, where the action reached here.
+  function cookNext() { return !!(recipe && recipe.action && page === recipePages(recipe).length - 1); }
   async function openPanel() {
     const a = app(), item = a && a.menu[menuIndex];
-    panel = null; row = 0; sortIndex = 0; show("panel");
+    panel = null; row = 0; sortIndex = 0; crumbs = []; show("panel");
     try { panel = await MIA.glassesPanel(a.id, item.id, mission); }
     catch (err) { panel = { lines: [], empty: err.message, more: 0 }; }
     row = 0;
@@ -1081,7 +1140,7 @@
     if (view === "confirm") { cancel(); return; }
     if (view === "result" || view === "reward") { clearTimeout(rewardTimer); leaveResult(); return; }
     if (view === "recipe") { show("panel"); return; }
-    if (view === "panel") { row = menuIndex; panel = null; show("menu"); return; }
+    if (view === "panel") { leavePanel(); return; }
     if (view === "menu") { row = 0; show("cards"); return; }
     if (showingAll) { showingAll = false; appIndex = Math.max(0, cards().length - 1); render(); return; }
     show("home");
