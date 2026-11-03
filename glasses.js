@@ -53,7 +53,8 @@
   let view = "home";         // home | cards | menu | panel | confirm | result | reward | hud | log | boot | sync | welcome
   let showingAll = false;    // browsing the apps that aren't pinned
   let appIndex = 0, row = 0;
-  let panel = null, proposal = null, resultText = "", after = "menu", busy = false, crumbs = [];
+  let panel = null, proposal = null, resultText = "", after = "menu", busy = false, crumbs = [], panelItem = "";
+  const LIVE_MS = 2000;  // a live panel (the workout going now) keeps itself current
   let reward = null, rewardTimer = null;
   let mission = store.get("mia.glasses.mission") || "";
 
@@ -1115,6 +1116,11 @@
   }
 
   async function propose(action, then) {
+    if (action.quick) {  // the live workout: this press is the yes (DEC-0065)
+      try { const p = await MIA.propose(action.kind, action.params); await MIA.approve(p.proposal_id); await refreshPanel(); }
+      catch (err) { resultText = err.message; after = then; show("result"); }
+      return;
+    }
     try { proposal = await MIA.propose(action.kind, action.params); after = then; row = 0; show("confirm"); }
     catch (err) { resultText = err.message; after = then === "reload" ? "menu" : "panel"; show("result"); }
   }
@@ -1123,25 +1129,35 @@
     proposal = null;
     if (after === "reload") { row = menuIndex; show("menu"); } else { row = 0; show("panel"); }
   }
+  // The same panel again, where you are in it: after a change, or while it's live.
+  async function refreshPanel() {
+    const a = app();
+    if (!a || !panelItem) return;
+    try { panel = await MIA.glassesPanel(a.id, panelItem, mission); }
+    catch (err) { return; }
+    row = Math.min(row, panelRows().length - 1);
+    if (view === "panel") render();
+  }
+  setInterval(() => { if (view === "panel" && panel && panel.live && !busy && !demo) refreshPanel(); }, LIVE_MS);
   // One step deeper than a panel (a vehicle in Garage): Back returns to the list.
   async function openDeeper(item) {
-    crumbs.push(panel); panel = null; row = 0; show("panel");
+    crumbs.push({ panel, item: panelItem }); panel = null; panelItem = item; row = 0; show("panel");
     try { panel = await MIA.glassesPanel(app().id, item, mission); }
     catch (err) { panel = { lines: [], empty: err.message, more: 0 }; }
     if (view === "panel") render();
   }
   function leavePanel() {
-    if (crumbs.length) { panel = crumbs.pop(); row = 0; show("panel"); return; }
+    if (crumbs.length) { const up = crumbs.pop(); panel = up.panel; panelItem = up.item; row = 0; show("panel"); return; }
     row = menuIndex; panel = null; show("menu");
   }
   // On a recipe's last page, select says you made it, where the action reached here.
   function cookNext() { return !!(recipe && recipe.action && page === recipePages(recipe).length - 1); }
   async function openPanel() {
     const a = app(), item = a && a.menu[menuIndex];
-    panel = null; row = 0; sortIndex = 0; crumbs = []; show("panel");
+    panel = null; row = 0; sortIndex = 0; crumbs = []; panelItem = item.id; show("panel");
     try { panel = await MIA.glassesPanel(a.id, item.id, mission); }
     catch (err) { panel = { lines: [], empty: err.message, more: 0 }; }
-    row = 0;
+    row = panel.live ? Math.max(0, panelRows().findIndex((r) => r.line && actionOf(r.line))) : 0;
     if (view === "panel") render();
   }
   // Location quests (DEC-0028 #13): arriving at the store opens the grocery
@@ -1157,7 +1173,7 @@
     };
   }
   async function leaveResult() {
-    if (after === "panel") { await load(); await openPanel(); return; }
+    if (after === "panel") { await load(); show("panel"); await refreshPanel(); return; }
     if (after === "reload") {  // pins changed: re-read the cards, stay with this app
       const id = (app() || {}).id;
       await load();
