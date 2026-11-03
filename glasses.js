@@ -1073,7 +1073,7 @@
       return;
     }
     if (view === "recipe") {
-      if (cookNext()) { await propose(recipe.action, "panel"); return; }
+      if (cookNext()) { await propose(actionOf(recipe), "panel"); return; }
       row = Math.max(0, row); show("panel"); return;
     }
     if (view === "panel") {
@@ -1151,7 +1151,7 @@
     row = menuIndex; panel = null; show("menu");
   }
   // On a recipe's last page, select says you made it, where the action reached here.
-  function cookNext() { return !!(recipe && recipe.action && page === recipePages(recipe).length - 1); }
+  function cookNext() { return !!(recipe && actionOf(recipe) && page === recipePages(recipe).length - 1); }
   async function openPanel() {
     const a = app(), item = a && a.menu[menuIndex];
     panel = null; row = 0; sortIndex = 0; crumbs = []; panelItem = item.id; show("panel");
