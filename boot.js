@@ -186,7 +186,9 @@ window.MIA = {
     ? ask("/firstboot/step", { kind, params: params || {} }).then(() => ({ proposal_id: "" }))
     : kind === "offer" ? ask("/action/propose", { ref: params.ref }) : notHere()),
   approve: (id) => (id === "" ? Promise.resolve({}) : ask("/action/approve", { id })),
-  talk: notHere, voice: notHere,
+  // Only a question her screen was offered: the phone refuses any other words.
+  talk: (text) => ask("/talk", { text }),
+  voice: notHere,
   reject: (id) => (id === "" ? Promise.resolve() : ask("/action/reject", { id })),
 };
 
