@@ -168,7 +168,10 @@ window.MIA = {
   // Not over the relay yet: Zac approved reading first (DEC-0062).
   firstBoot: () => Promise.resolve({ done: true, beats: [] }),
   userSync: () => Promise.resolve({ done: true, offer: false, active: false }),
-  shell: notHere, thread: () => Promise.resolve({ messages: [] }), speak: notHere, image: notHere,
+  // A message with money in it comes back blank from the phone, and stays out.
+  thread: (limit) => ask("/api/talk/thread?limit=" + Math.min(limit || 40, 40))
+    .then((got) => ({ ...got, messages: (got.messages || []).filter((m) => m.content) })),
+  shell: notHere, speak: notHere, image: notHere,
   propose: notHere, approve: notHere, talk: notHere, voice: notHere, firstBootStep: notHere, userSyncStep: notHere,
   reject: () => Promise.resolve(),
 };
