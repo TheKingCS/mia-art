@@ -173,7 +173,7 @@ window.MIA = {
   welcome: () => ask("/api/welcome"),
   welcomeStep: (step) => ask("/api/welcome", step),
   // A message with money in it comes back blank from the phone, and stays out.
-  thread: (limit) => ask("/api/talk/thread?limit=" + Math.min(limit || 40, 40))
+  history: (limit) => ask("/api/talk/thread?limit=" + Math.min(limit || 40, 40) + "&earlier=1")
     .then((got) => ({ ...got, messages: (got.messages || []).filter((m) => m.content) })),
   shell: notHere, speak: notHere, image: notHere,
   // Her awakening saves each step as propose-then-approve; the phone does both.

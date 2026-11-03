@@ -34,6 +34,7 @@ body {
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background: radial-gradient(circle at 50% 45%, rgba(53, 212, 255, 0.07), transparent 46%);
 }
+.reading #stage::before { display: none; }
 #demo-tag {
   position: absolute; top: 10px; right: 14px; margin: 0; z-index: 3;
   font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.18em; color: var(--ink-faint); text-transform: uppercase;
@@ -254,7 +255,7 @@ body {
 .msg .who { font-size: 13px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-faint); }
 .msg.mia { align-self: flex-start; }
 .msg.you { align-self: flex-end; text-align: right; }
-.msg.you p { color: var(--ink-dim); }
+.msg.you p { color: var(--ink); }
 
 /* ---------------- every other screen ---------------- */
 #screen { position: absolute; inset: 0; padding: 40px 48px 34px; display: flex; flex-direction: column; }

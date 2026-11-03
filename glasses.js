@@ -382,6 +382,7 @@
     home.hidden = v !== "home";
     screen.hidden = v === "home" || v === "boot";
     document.body.classList.toggle("sync-on", v === "sync");
+    document.body.classList.toggle("reading", v !== "home" && v !== "boot");  // no glow behind words
     $("boot").hidden = v !== "boot";
     document.body.classList.toggle("boot-on", v === "boot");
     if (v !== "home" && v !== "boot") render();
@@ -704,7 +705,7 @@
   const LOG_STEP = 150;
   let thread = [];
   async function openLog() {
-    try { thread = ((await MIA.thread(200)).messages || []).filter((m) => m.role === "user" || m.role === "assistant"); }
+    try { thread = ((await MIA.history(200)).messages || []).filter((m) => m.role === "user" || m.role === "assistant"); }
     catch (e) { /* keep what's showing */ }
     show("log");
     const box = document.querySelector(".log-scroll");
