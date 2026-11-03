@@ -11,6 +11,7 @@ const $ = (id) => document.getElementById(id);
 const say = (text) => { $("facts").textContent = text; };
 const STORE = "mia.relay";
 const ANSWER_MS = 8000;
+const SAVE_MS = 90000;
 const LOST_AFTER = 4;
 
 let saved = null;
@@ -103,7 +104,7 @@ class Refused extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-function ask(path) {
+function ask(path, body) {
   return new Promise((resolve, reject) => {
     if (!socket || socket.readyState !== 1) return reject(new Error("Not connected"));
     const id = toBase64(crypto.getRandomValues(new Uint8Array(12)));
@@ -111,9 +112,9 @@ function ask(path) {
       asked.delete(id);
       if (++misses >= LOST_AFTER) offerPairing();
       reject(new Error("No answer"));
-    }, ANSWER_MS);
+    }, body ? SAVE_MS : ANSWER_MS);
     asked.set(id, { resolve, reject, timer });
-    box.seal({ id, path }).then((frame) => socket.send(frame)).catch(reject);
+    box.seal(body ? { id, path, body } : { id, path }).then((frame) => socket.send(frame)).catch(reject);
   });
 }
 
@@ -165,14 +166,21 @@ window.MIA = {
   glassesOrb: () => ask("/api/glasses/orb"),
   glassesFeed: (since) => ask("/api/glasses/feed" + (since ? "?since=" + encodeURIComponent(since) : "")),
   phoneListen: () => ask("/voice/listen"),
-  // Not over the relay yet: Zac approved reading first (DEC-0062).
-  firstBoot: () => Promise.resolve({ done: true, beats: [] }),
-  userSync: () => Promise.resolve({ done: true, offer: false, active: false }),
+  // Meeting her. Only these save anything; the phone names each one.
+  firstBoot: () => ask("/api/first-boot"),
+  userSync: () => ask("/api/user-sync"),
+  userSyncStep: (step) => ask("/api/user-sync", step),
+  welcome: () => ask("/api/welcome"),
+  welcomeStep: (step) => ask("/api/welcome", step),
   // A message with money in it comes back blank from the phone, and stays out.
   thread: (limit) => ask("/api/talk/thread?limit=" + Math.min(limit || 40, 40))
     .then((got) => ({ ...got, messages: (got.messages || []).filter((m) => m.content) })),
   shell: notHere, speak: notHere, image: notHere,
-  propose: notHere, approve: notHere, talk: notHere, voice: notHere, firstBootStep: notHere, userSyncStep: notHere,
+  // Her awakening saves each step as propose-then-approve; the phone does both.
+  propose: (kind, params) => (kind.startsWith("firstboot.")
+    ? ask("/firstboot/step", { kind, params: params || {} }).then(() => ({ proposal_id: "" })) : notHere()),
+  approve: (id) => (id === "" ? Promise.resolve({}) : notHere()),
+  talk: notHere, voice: notHere,
   reject: () => Promise.resolve(),
 };
 
