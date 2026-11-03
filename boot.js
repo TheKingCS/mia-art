@@ -176,6 +176,10 @@ window.MIA = {
   history: (limit) => ask("/api/talk/thread?limit=" + Math.min(limit || 40, 40) + "&earlier=1")
     .then((got) => ({ ...got, messages: (got.messages || []).filter((m) => m.content) })),
   shell: notHere, speak: notHere, image: notHere,
+  // Music plays on the phone; these only say what to play, by library id.
+  musicPlay: (step) => ask("/music/play", step),
+  musicControl: (step) => ask("/music/control", step),
+  musicNow: () => ask("/music/now"),
   // Her awakening saves each step as propose-then-approve; the phone does both.
   // Anything else is a reference the phone offered: this page never names a change.
   propose: (kind, params) => (kind.startsWith("firstboot.")

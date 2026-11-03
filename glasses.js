@@ -327,6 +327,47 @@
     rows.forEach((r, i) => chips.append(el("div", "s-chip" + (i === row ? " sel" : ""), esc(r.back ? "Back" : r.text))));
     return [box, chips];
   }
+  // Now Playing: the phone plays it (Music.kt), so it comes out of the glasses.
+  // Select presses the chip; move picks one. The titles come from the list it was played from.
+  const PLAYER_MS = 2000, PLAYER_CHIPS = [["pause", "Pause"], ["next", "Next"], ["previous", "Previous"]];
+  let playing = null, songs = {}, playerRow = 0, afterPlayer = "menu";
+  function rememberSongs() {
+    (panel ? panel.lines : []).forEach((l) => { if (l.play) songs[l.play.ids[l.play.at]] = { title: l.text, detail: l.detail }; });
+  }
+  async function playFrom(play) {
+    rememberSongs(); afterPlayer = "panel";
+    try { playing = await MIA.musicPlay({ ids: play.ids, at: play.at }); playerRow = 0; show("player"); }
+    catch (err) { resultText = err.message; after = "panel"; show("result"); }
+  }
+  async function openPlayer() {
+    afterPlayer = "menu";
+    try { playing = await MIA.musicNow(); } catch (err) { playing = null; }
+    playerRow = 0; show("player");
+  }
+  async function playerPress() {
+    const what = PLAYER_CHIPS[playerRow][0];
+    const press = what === "pause" && playing && !playing.playing ? "resume" : what;
+    try { playing = await MIA.musicControl({ do: press }); render(); }
+    catch (err) { answer(err.message, 5); }
+  }
+  setInterval(() => {
+    if (view === "player" && !demo) MIA.musicNow().then((now) => { playing = now; if (view === "player") render(); }).catch(() => {});
+  }, PLAYER_MS);
+  function playerScreen(a) {
+    const p = playing || {}, song = songs[p.track] || {};
+    const box = el("div", "w-card");
+    if (!p.track) box.append(el("h1", "s-q", "Nothing playing"), el("p", "w-sum", "Pick a song, a playlist or an artist."));
+    else {
+      box.append(el("p", "s-label", p.playing ? "Now playing" : "Paused"), el("h1", "s-q", esc(song.title || "Song " + p.number)));
+      if (song.detail) box.append(el("p", "w-sum", esc(song.detail)));
+      const foot = el("div", "s-foot");
+      foot.append(el("span", "", esc(p.number) + " of " + esc(p.total)), el("div", "m-bar", '<i style="width:' + (p.length ? Math.round(100 * p.seconds / p.length) : 0) + '%"></i>'));
+      box.append(foot);
+    }
+    const chips = el("div", "s-chips");
+    PLAYER_CHIPS.forEach(([what, label], i) => chips.append(el("div", "s-chip" + (i === playerRow ? " sel" : ""), esc(what === "pause" && !p.playing ? "Play" : label))));
+    return appFrame(a, "Now Playing", "", p.track ? [box, chips] : [box], "press");
+  }
   function menuRows(a) {
     return (a.menu || []).map((m) => ({ text: (m.type === "action" ? "★ " : "") + m.label, cap: true,
       verb: m.type === "ask" ? "ask" : m.type === "action" ? "" : "›" }))
@@ -348,7 +389,7 @@
     panel.lines.forEach((l) => {
       if (want && l.bucket !== want) return;
       rows.push({ kind: "line", line: l, text: l.text, detail: l.detail, tone: l.tone,
-        verb: actionOf(l) ? actionOf(l).label : l.pick ? l.pick.label : l.recipe ? "Open" : "" });
+        verb: actionOf(l) ? actionOf(l).label : l.pick ? l.pick.label : l.open ? l.open.label : l.play ? l.play.label : l.recipe ? "Open" : "" });
     });
     return rows.concat([BACK_ROW]);
   }
@@ -745,7 +786,7 @@
       const item = (a.menu || [])[menuIndexOf()] || {};
       const rows = panelRows(), r = rows[row];
       const body = el("div", "body");
-      if (r.back) body.append(el("div", "card", '<p class="name">Back</p><p class="status">to the Kitchen menu</p>'));
+      if (r.back) body.append(el("div", "card", '<p class="name">Back</p>'));
       else {
         const rec = r.line.recipe;
         const card = el("div", "recipe-card");
@@ -753,8 +794,7 @@
         if (r.detail) card.append(el("p", "status", esc(r.detail)));
         body.append(card);
       }
-      parts.push(kicker(a.name + " · " + (item.label || ""), (row + 1) + " / " + rows.length), body,
-        hint(r.back ? "go back" : "open recipe"));
+      parts.push(appFrame(a, (crumbs.length && panel ? panel.label : item.label) || "", (row + 1) + " of " + rows.length, [body], r.back ? "go back" : "open recipe"));
     } else if (view === "recipe") {
       const pages = recipePages(recipe), pg = pages[page];
       const body = el("div", "body");
@@ -771,7 +811,7 @@
       } else {
         body.append(el("p", "title", "Step " + pg.n + " Of " + recipe.steps.length), el("p", "r-step" + (pg.text.length > 180 ? " long" : ""), esc(pg.text)));
       }
-      parts.push(kicker(recipe.name, (page + 1) + " / " + pages.length), body, hint(cookNext() ? "I made this" : "back to recipes"));
+      parts.push(appFrame(a, recipe.name, (page + 1) + " of " + pages.length, [body], cookNext() ? "I made this" : "back to recipes"));
     } else if (view === "panel") {
       const item = (a.menu || [])[menuIndexOf()] || {};
       const body = el("div", "body");
@@ -787,7 +827,7 @@
       const r = rows[row] || BACK_ROW;
       const line = r.line;
       parts.push(appFrame(a, (crumbs.length && panel ? panel.label : item.label) || "", "", [body],
-        r.back ? "go back" : r.kind === "sort" ? "change sort" : line && (actionOf(line) || line.pick || line.open) ? (actionOf(line) || line.pick || line.open).label : "—"));
+        r.back ? "go back" : r.kind === "sort" ? "change sort" : line && (actionOf(line) || line.pick || line.open || line.play) ? (actionOf(line) || line.pick || line.open || line.play).label : "—"));
     } else if (view === "confirm") {
       const body = el("div", "body");
       body.append(el("p", "say", esc(proposal ? proposal.summary : "")));
@@ -807,6 +847,8 @@
       parts.push(syncScreen());
     } else if (view === "welcome") {
       parts.push(welcomeScreen());
+    } else if (view === "player") {
+      parts.push(playerScreen(a));
     }
     screen.replaceChildren(...parts);
   }
@@ -946,6 +988,7 @@
       return;
     }
     if (view === "welcome") { welcomeMove(dir); return; }
+    if (view === "player") { playerRow = (playerRow + dir + PLAYER_CHIPS.length) % PLAYER_CHIPS.length; render(); return; }
     if (view === "log") {
       const box = document.querySelector(".log-scroll");
       if (box) box.scrollTop += dir * LOG_STEP;
@@ -993,6 +1036,7 @@
     if (view === "hud") { show("home"); return; }
     if (view === "home" || view === "log") { listen(); return; }
     if (view === "welcome") { await welcomeSelect(); return; }
+    if (view === "player") { if (playing && playing.track) await playerPress(); return; }
     if (view === "sync") {
       if (sync.step === "phone") { await syncStep({ choice: "skip" }); return; }
       if (sync.step === "next") { await syncStep({ choice: "continue" }); return; }
@@ -1023,6 +1067,7 @@
         return;
       }
       if (item.type === "action") { await propose(item.action, "reload"); return; }
+      if (item.type === "player") { await openPlayer(); return; }
       await openPanel();
       return;
     }
@@ -1038,6 +1083,7 @@
       const line = rows[row].line;
       if (line.recipe) { recipe = line.recipe; page = 0; show("recipe"); return; }
       if (line.open) { await openDeeper(line.open.item); return; }
+      if (line.play) { await playFrom(line.play); return; }
       if (line.pick) {  // which mission the Missions card shows
         mission = line.pick.mission; store.set("mia.glasses.mission", mission);
         await load();
@@ -1133,6 +1179,7 @@
       return;
     }
     if (view === "hud" || view === "log") { show("home"); return; }
+    if (view === "player") { row = afterPlayer === "menu" ? menuIndex : row; show(afterPlayer); return; }
     if (view === "home") {
       if (voiceState === "answered") { orbState("idle"); return; }
       hudStart();  // swipe down on the orb: Heads-Up

@@ -201,6 +201,15 @@ body {
 .app-screen .title { margin: 0 0 4px; font-size: 22px; }
 .app-screen .more { margin: 0; font-size: 12px; }
 .app-screen .empty { font-size: 20px; }
+.app-screen .recipe-card { gap: 8px; }
+.app-screen .recipe-card .photo { width: 340px; height: 200px; }
+.app-screen .r-name { font-size: 28px; }
+.app-screen .status { font-size: 16px; }
+.app-screen .r-list { margin: 4px 0 0; gap: 8px; }
+.app-screen .r-list li { font-size: 19px; }
+.app-screen .r-step { margin: 8px 0 0; font-size: 22px; }
+.app-screen .r-step.long { font-size: 18px; }
+.app-screen .card .name { font-size: 28px; }
 .w-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .w-tile { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; min-height: 58px; padding: 4px;
   border: 1px solid var(--accent-dim); border-radius: 10px; font-size: 13px; text-align: center; color: var(--ink-faint); }
